@@ -1,4 +1,4 @@
-# 📚 优书搜索插件 AstrBot Plugin
+# 📚 优书搜索助手
 
 ## ✨ 简介
 
@@ -57,7 +57,6 @@
 * 新增支持网站。
 * 新增 `/hs` 指令。
 
-
 **v1.2**
 
 * 新增支持网站。
@@ -76,9 +75,5 @@
 
 ## 📞 联系方式
 
-GitHub Issues: [https://github.com/Foolllll-J/astrbot_plugin_youshusearch/issues](https://github.com/Foolllll-J/astrbot_plugin_youshusearch/issues)
-
-## 支持
-
-[帮助文档](https://astrbot.app)
+如果您在使用中遇到问题，欢迎在本仓库提交 [Issue](https://github.com/Foolllll-J/astrbot_plugin_youshusearch/issues)。
 

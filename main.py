@@ -14,7 +14,7 @@ from astrbot.api import logger
 @register(
     "astrbot_plugin_youshusearch",  # 插件ID
     "Foolllll",                    # 作者名
-    "优书搜索插件",                  # 插件显示名称
+    "优书搜索助手",                  # 插件显示名称
     "1.3",                         # 版本号
     "https://github.com/Foolllll-J/astrbot_plugin_youshusearch", # 插件仓库地址
 )

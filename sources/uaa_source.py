@@ -104,7 +104,28 @@ class UaaSource(BaseSource):
 
             # Extract latest update
             update_match = re.search(r'<div class="item">\s*最新：(.*?)\s*</div>', html_content)
-            novel_info['latest_update'] = clean_text(update_match.group(1)) if update_match else '无'
+            novel_info['latest_chapter'] = clean_text(update_match.group(1)) if update_match else None
+
+            # Extract update time if available (HS intro page usually shows latest chapter instead of time directly in that spot)
+            # but let's see if there's a status line with time.
+            update_time_match = re.search(r'最后更新：\s*(.*?)\s*</div>', html_content)
+            novel_info['update_time'] = clean_text(update_time_match.group(1)) if update_time_match else None
+
+            # Extract word count, popularity, and meat ratio from props_box
+            props_match = re.search(r'<div class="props_box"[^>]*?>\s*<ul>(.*?)</ul>', html_content, re.DOTALL)
+            if props_match:
+                props_html = props_match.group(1)
+                # Meat ratio (多肉)
+                meat_match = re.search(r'<li>\s*<img src="/image/rou\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                novel_info['meat_ratio'] = clean_text(meat_match.group(1)) if meat_match else None
+                
+                # Word count
+                word_match = re.search(r'<li>\s*<img src="/image/word_count\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                novel_info['word_count'] = clean_text(word_match.group(1)) if word_match else None
+                
+                # Popularity/Collect
+                collect_match = re.search(r'<li>\s*<img src="/image/collect\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                novel_info['popularity'] = f"{clean_text(collect_match.group(1))}人收藏" if collect_match else None
 
             # Get reviews
             reviews = []
@@ -139,15 +160,19 @@ class UaaSource(BaseSource):
 
             book = Book(
                 id=book_id,
-                title=novel_info['title'],
-                author=novel_info['author'],
-                score=novel_info['score'],
-                status=novel_info['status'],
-                category=novel_info['categories'][0] if novel_info['categories'] else "未知",  # Use first category as main category
-                categories=novel_info['categories'],  # Store all categories separately
-                tags=all_tags,  # Store tags separately
-                synopsis=novel_info['intro'],
-                update_time=novel_info['latest_update'],
+                title=novel_info['title'] if novel_info['title'] != '无' else None,
+                author=novel_info['author'] if novel_info['author'] != '无' else None,
+                score=novel_info['score'] if novel_info['score'] != '无' else None,
+                status=novel_info['status'] if novel_info['status'] != '无' else None,
+                category=novel_info['categories'][0] if novel_info['categories'] else None,
+                categories=novel_info['categories'],
+                tags=all_tags,
+                word_count=novel_info.get('word_count'),
+                meat_ratio=novel_info.get('meat_ratio'),
+                popularity=novel_info.get('popularity'),
+                synopsis=novel_info['intro'] if novel_info['intro'] != '无' else None,
+                update_time=novel_info['update_time'],
+                last_chapter=novel_info['latest_chapter'],
                 reviews=reviews
             )
 

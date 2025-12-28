@@ -19,17 +19,20 @@ class Book:
     id: str
     title: str
     author: str
-    score: str = "N/A"
-    scorer: str = "0"
-    status: str = "未知"
-    platform: str = "未知"
-    category: str = "未知"
+    score: Optional[str] = None
+    scorer: Optional[str] = None
+    status: Optional[str] = None
+    platform: Optional[str] = None
+    category: Optional[str] = None
     tags: List[str] = None
     categories: List[str] = None  # For HS-specific display of multiple categories
     word_count: Optional[float] = None
-    update_time: str = "未知"
-    synopsis: str = "无"
-    link: str = ""
+    update_time: Optional[str] = None
+    last_chapter: Optional[str] = None # For HS latest chapter
+    meat_ratio: Optional[str] = None   # For HS unique attribute (e.g. 40.10%)
+    popularity: Optional[str] = None   # For book popularity/collect count
+    synopsis: Optional[str] = None
+    link: Optional[str] = None
     image_url: Optional[str] = None
     reviews: List[Dict[str, Any]] = None
 
@@ -153,55 +156,124 @@ class YoushuSearchPlugin(Star):
         """根据序号和搜索类型获取书籍信息"""
         return self.state_mgr.get_item_by_number(user_id, number, search_type)
 
-    def _render_search_results(self, keyword: str, results: SearchResult, page_to_list: int) -> str:
-        """渲染搜索结果列表"""
+    def _render_search_results(self, keyword: str, results: SearchResult, page_to_list: int, search_type: str = "ys") -> str:
+        """统一渲染搜索结果列表"""
         results_per_page = 20
         start_num = (page_to_list - 1) * results_per_page + 1
         message_text = f"以下是【{keyword}】的第 {page_to_list}/{results.total_pages} 页搜索结果:\n"
         
         for i, book in enumerate(results.books):
             num = start_num + i
-            message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {book.score} ({book.scorer}人)\n"
+            # 兼容评分显示，统一截取两位小数
+            score = book.score
+            score_str = 'N/A'
+            if score and score != 'N/A':
+                try:
+                    score_str = f"{float(score):.2f}"
+                except (ValueError, TypeError):
+                    score_str = str(score)
+            
+            scorer_info = f" ({book.scorer}人)" if book.scorer and book.scorer != '0' else ""
+            message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score_str}{scorer_info}\n"
         
-        message_text += f"\n💡 请使用 `/ys ls <序号>` 查看详情"
+        cmd_prefix = f"/{search_type}"
+        message_text += f"\n💡 请使用 `{cmd_prefix} ls <序号>` 查看详情"
         if results.total_pages > 1:
-            message_text += f"\n💡 使用 /ys next 下一页，/ys prev 上一页"
+            message_text += f"\n💡 使用 {cmd_prefix} next 下一页，{cmd_prefix} prev 上一页"
         return message_text
 
-    async def _render_ys_book_details(self, event: AstrMessageEvent, book: Book):
-        """渲染优书网书籍详情并返回事件结果"""
+    async def _render_book_details(self, event: AstrMessageEvent, book: Book):
+        """统一渲染书籍详情并返回事件结果"""
         message_text = f"---【{book.title}】---\n"
-        message_text += f"作者: {book.author}\n"
+        
+        # 核心信息：作者
+        if book.author:
+            message_text += f"作者: {book.author}\n"
 
-        if book.platform and book.platform != "未知":
+        # 评分数据
+        if book.score:
+            try:
+                formatted_score = f"{float(book.score):.2f}"
+            except (ValueError, TypeError):
+                formatted_score = book.score
+            scorer_info = f" ({book.scorer}人评分)" if book.scorer else ""
+            message_text += f"评分: {formatted_score}{scorer_info}\n"
+
+        # 平台、分类/题材
+        if book.platform:
             message_text += f"平台: {book.platform}\n"
-        if book.category and book.category != "未知":
+            
+        # HS 网站显示“题材”，其他显示“分类”
+        if book.categories: # HS 特有
+            message_text += f"题材: {' '.join(book.categories)}\n"
+        elif book.category:
             message_text += f"分类: {book.category}\n"
 
+        # 标签
         if book.tags:
             message_text += f"标签: {' '.join(book.tags)}\n"
 
+        # 字数
         if book.word_count is not None:
-            message_text += f"字数: {book.word_count / 10000:.2f}万字\n"
-        else:
-            message_text += f"字数: 无\n"
+            if isinstance(book.word_count, str) and ('K' in book.word_count or 'M' in book.word_count):
+                 message_text += f"字数: {book.word_count}\n"
+            else:
+                 try:
+                     message_text += f"字数: {float(book.word_count) / 10000:.2f}万字\n"
+                 except:
+                     message_text += f"字数: {book.word_count}\n"
 
-        scorer_text = f"{book.scorer}人评分" if book.scorer and book.scorer != '0' else "无人评分"
-        message_text += f"评分: {book.score} ({scorer_text})\n"
-        message_text += f"状态: {book.status}\n"
-        message_text += f"更新: {book.update_time}\n"
-        message_text += f"简介: {book.synopsis}\n"
-        message_text += f"链接: {book.link}\n"
+        # 状态
+        if book.status:
+            message_text += f"状态: {book.status}\n"
 
+        # 多肉度 (uaa 独特)
+        if book.meat_ratio:
+            message_text += f"肉度: {book.meat_ratio}\n"
+
+        # 热度 / 收藏 (uaa 独特)
+        if book.popularity:
+            message_text += f"热度: {book.popularity}\n"
+
+        # 更新信息
+        if book.update_time:
+            message_text += f"更新: {book.update_time}\n"
+        
+        # HS 特有：最新章节
+        if book.last_chapter:
+            message_text += f"最新: {book.last_chapter}\n"
+
+        # 简介
+        if book.synopsis:
+            message_text += f"简介: {book.synopsis}\n"
+
+        # 链接
+        if book.link:
+            message_text += f"链接: {book.link}\n"
+
+        # 书评内容
         if book.reviews:
             message_text += "\n--- 📝 最新书评 ---\n"
-            for review in book.reviews:
+            for review in book.reviews[:5]: # 最多显示5条
                 author = review.get('author', '匿名')
-                rating = review.get('rating', '无')
+                # 兼容不同的评分键名 (score or rating)，并统一格式化
+                rating = review.get('score') or review.get('rating')
+                try:
+                    rating_str = f"{float(rating):.2f}" if rating and rating != '无' else "无"
+                except (ValueError, TypeError):
+                    rating_str = str(rating) if rating else "无"
+                
                 content = review.get('content', '无')
-                message_text += f"{author} ({rating}分): {content}\n"
+                time_str = review.get('time') or review.get('createTimeFormat')
+                
+                review_line = f"{author} ({rating_str}分"
+                if time_str:
+                    review_line += f", {time_str}"
+                review_line += f"): {content}\n"
+                message_text += review_line
 
         chain = []
+        # 图片抓取 (HS 详情页未抓取封面)
         if book.image_url:
             try:
                 timeout = aiohttp.ClientTimeout(total=10)
@@ -215,53 +287,7 @@ class YoushuSearchPlugin(Star):
                 logger.warning(f"❌ 下载封面图片失败 (超时或链接无效): {e}")
                 message_text = "🖼️ 封面加载失败\n\n" + message_text
 
-        chain.append(Comp.Plain(message_text))
-        yield event.chain_result(chain)
-
-    async def _render_hs_book_details(self, event: AstrMessageEvent, book: Book):
-        """渲染UAA书籍详情并返回事件结果"""
-        message_text = f"---【{book.title}】---\n"
-        message_text += f"作者: {book.author}\n"
-        message_text += f"评分: {book.score}\n"
-        message_text += f"状态: {book.status}\n"
-
-        # Show categories as "题材" (like original)
-        if hasattr(book, 'categories') and book.categories:  # If we have separate categories field
-            message_text += f"题材: {' '.join(book.categories)}\n"
-        elif book.category and book.category != "未知" and book.category != "UAA":  # If category field contains categories
-            message_text += f"题材: {book.category}\n"
-
-        # Show tags as "标签" (like original)
-        if book.tags:
-            message_text += f"标签: {' '.join(book.tags)}\n"
-
-        message_text += f"更新: {book.update_time}\n"
-        message_text += f"简介: {book.synopsis}\n"
-
-        if book.reviews:
-            message_text += "\n--- 📝 最新书评 ---\n"
-            for r in book.reviews:
-                author = r.get('author', '匿名')
-                score = r.get('score', r.get('rating', '无'))
-                time_str = r.get('time', r.get('createTimeFormat', ''))
-                content = r.get('content', '')
-                message_text += f"{author} ({score}分, {time_str}): {content}\n"
-
-        chain = []
-        if book.image_url:
-            try:
-                timeout = aiohttp.ClientTimeout(total=10)
-                async with self.session.get(book.image_url, timeout=timeout) as img_response:
-                    img_response.raise_for_status()
-                    image_bytes = await img_response.read()
-                image_base64 = base64.b64encode(image_bytes).decode()
-                image_component = Comp.Image(file=f"base64://{image_base64}")
-                chain.append(image_component)
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning(f"❌ 下载封面图片失败 (超时或链接无效): {e}")
-                message_text = "🖼️ 封面加载失败\n\n" + message_text
-
-        chain.append(Comp.Plain(message_text))
+        chain.append(Comp.Plain(message_text.strip()))
         yield event.chain_result(chain)
 
     @filter.command("ys")
@@ -314,7 +340,7 @@ class YoushuSearchPlugin(Star):
                 selected_book = search_result.books[0]
                 book_details = await self.youshu_source.get_book_details(self.session, selected_book.id)
                 if book_details:
-                    async for result in self._render_ys_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details):
                         yield result
                 else:
                     yield event.plain_result(f"😢 无法获取书籍详情。")
@@ -322,7 +348,7 @@ class YoushuSearchPlugin(Star):
             
             if item_index is None:
                 # Show search results list
-                message_text = self._render_search_results(book_name, search_result, page_to_list)
+                message_text = self._render_search_results(book_name, search_result, page_to_list, "ys")
                 yield event.plain_result(message_text)
             else:
                 # Show details for specific book
@@ -347,7 +373,7 @@ class YoushuSearchPlugin(Star):
                 selected_book = search_result.books[index_on_page]
                 book_details = await self.youshu_source.get_book_details(self.session, selected_book.id)
                 if book_details:
-                    async for result in self._render_ys_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details):
                         yield result
                 else:
                     yield event.plain_result(f"😢 无法获取书籍详情。")
@@ -402,23 +428,19 @@ class YoushuSearchPlugin(Star):
             # Update user search state
             self.state_mgr.update_state(user_id, book_name, page_to_list, search_result.total_pages, "hs", search_result.books)
 
+            if item_index is None and len(search_result.books) == 1 and search_result.total_pages == 1:
+                # If only one result and only one page, show details directly
+                selected_book = search_result.books[0]
+                book_details = await self.uaa_source.get_book_details(self.session, selected_book.id)
+                if book_details:
+                    async for result in self._render_book_details(event, book_details):
+                        yield result
+                else:
+                    yield event.plain_result(f"😢 无法获取书籍详情。")
+                return
+
             if item_index is None: # 显示列表
-                results_per_page = 20
-                start_num = (page_to_list - 1) * results_per_page + 1
-                message_text = f"以下是【{book_name}】的第 {page_to_list}/{search_result.total_pages} 页搜索结果:\n"
-                for i, book in enumerate(search_result.books):
-                    num = start_num + i
-                    score_value = book.score
-                    if isinstance(score_value, (int, float)):
-                        score = f"{score_value:.2f}"
-                    else:
-                        score = 'N/A'
-
-                    message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score}\n"
-
-                message_text += f"\n💡 请使用 `/hs ls <序号>` 查看详情"
-                if search_result.total_pages > 1:
-                    message_text += f"\n💡 使用 /hs next 下一页，/hs prev 上一页"
+                message_text = self._render_search_results(book_name, search_result, page_to_list, "hs")
                 yield event.plain_result(message_text)
             else: # 显示详情
                 results_per_page = 20
@@ -442,7 +464,7 @@ class YoushuSearchPlugin(Star):
                 selected_book = search_result.books[index_on_page]
                 book_details = await self.uaa_source.get_book_details(self.session, selected_book.id)
                 if book_details:
-                    async for result in self._render_hs_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details):
                         yield result
                 else:
                     yield event.plain_result(f"😢 无法获取书籍详情。")
@@ -484,7 +506,7 @@ class YoushuSearchPlugin(Star):
             # Update state
             self.state_mgr.update_state(user_id, keyword, next_page, search_result.total_pages, "ys", search_result.books)
 
-            message_text = self._render_search_results(keyword, search_result, next_page)
+            message_text = self._render_search_results(keyword, search_result, next_page, "ys")
             yield event.plain_result(message_text)
         except Exception as e:
             logger.error(f"翻页失败: {e}", exc_info=True)
@@ -519,7 +541,7 @@ class YoushuSearchPlugin(Star):
             # Update state
             self.state_mgr.update_state(user_id, keyword, prev_page, search_result.total_pages, "ys", search_result.books)
 
-            message_text = self._render_search_results(keyword, search_result, prev_page)
+            message_text = self._render_search_results(keyword, search_result, prev_page, "ys")
             yield event.plain_result(message_text)
         except Exception as e:
             logger.error(f"翻页失败: {e}", exc_info=True)
@@ -579,7 +601,7 @@ class YoushuSearchPlugin(Star):
         try:
             book_details = await self.youshu_source.get_book_details(self.session, str(novel_id))
             if book_details:
-                async for result in self._render_ys_book_details(event, book_details):
+                async for result in self._render_book_details(event, book_details):
                     yield result
             else:
                 yield event.plain_result(f"😢 无法获取书籍详情。")
@@ -621,20 +643,7 @@ class YoushuSearchPlugin(Star):
             # Update state
             self.state_mgr.update_state(user_id, keyword, next_page, search_result.total_pages, "hs", search_result.books)
 
-            results_per_page = 20
-            start_num = (next_page - 1) * results_per_page + 1
-            message_text = f"以下是【{keyword}】的第 {next_page}/{search_result.total_pages} 页搜索结果:\n"
-            for i, book in enumerate(search_result.books):
-                num = start_num + i
-                score_value = book.score
-                if isinstance(score_value, (int, float)):
-                    score = f"{score_value:.2f}"
-                else:
-                    score = 'N/A'
-                message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score}\n"
-            message_text += f"\n💡 请使用 `/hs ls <序号>` 查看详情"
-            if search_result.total_pages > 1:
-                message_text += f"\n💡 使用 /hs next 下一页，/hs prev 上一页"
+            message_text = self._render_search_results(keyword, search_result, next_page, "hs")
             yield event.plain_result(message_text)
         except Exception as e:
             logger.error(f"翻页失败: {e}", exc_info=True)
@@ -669,20 +678,7 @@ class YoushuSearchPlugin(Star):
             # Update state
             self.state_mgr.update_state(user_id, keyword, prev_page, search_result.total_pages, "hs", search_result.books)
 
-            results_per_page = 20
-            start_num = (prev_page - 1) * results_per_page + 1
-            message_text = f"以下是【{keyword}】的第 {prev_page}/{search_result.total_pages} 页搜索结果:\n"
-            for i, book in enumerate(search_result.books):
-                num = start_num + i
-                score_value = book.score
-                if isinstance(score_value, (int, float)):
-                    score = f"{score_value:.2f}"
-                else:
-                    score = 'N/A'
-                message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score}\n"
-            message_text += f"\n💡 请使用 `/hs ls <序号>` 查看详情"
-            if search_result.total_pages > 1:
-                message_text += f"\n💡 使用 /hs next 下一页，/hs prev 上一页"
+            message_text = self._render_search_results(keyword, search_result, prev_page, "hs")
             yield event.plain_result(message_text)
         except Exception as e:
             logger.error(f"翻页失败: {e}", exc_info=True)
@@ -742,7 +738,7 @@ class YoushuSearchPlugin(Star):
         try:
             book_details = await self.uaa_source.get_book_details(self.session, str(novel_id))
             if book_details:
-                async for result in self._render_hs_book_details(event, book_details):
+                async for result in self._render_book_details(event, book_details):
                     yield result
             else:
                 yield event.plain_result(f"😢 无法获取书籍详情。")
@@ -821,7 +817,7 @@ class YoushuSearchPlugin(Star):
             try:
                 book_details = await self.youshu_source.get_book_details(self.session, str(random_id))
                 if book_details:
-                    async for result in self._render_ys_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details):
                         yield result
                     return
             except Exception as e:

@@ -377,21 +377,26 @@ class YoushuSource(BaseSource):
         if not details or details.get('novel_name', '无') == '无':
             return None
 
-        # Create Book object from details
+        # Create Book object from details, mapping '无'/'未知' to None for all optional fields
+        def clean_val(val, placeholders=['无', '未知', 'N/A', '0', '']):
+            if val in placeholders:
+                return None
+            return val
+
         book = Book(
             id=book_id,
-            title=details.get('novel_name', '无'),
-            author=details.get('author_name', '无'),
-            score=details.get('score', '无'),
-            scorer=details.get('scorer', '无'),
-            status=details.get('status', '未知'),
-            platform=details.get('platform', '未知'),
-            category=details.get('category', '未知'),
+            title=details.get('novel_name'),
+            author=clean_val(details.get('author_name')),
+            score=clean_val(details.get('score')),
+            scorer=clean_val(details.get('scorer')),
+            status=clean_val(details.get('status')),
+            platform=clean_val(details.get('platform')),
+            category=clean_val(details.get('category')),
             tags=details.get('tags', []),
             word_count=details.get('word_number'),
-            update_time=details.get('update_time_str', '未知'),
-            synopsis=details.get('synopsis', '无'),
-            link=details.get('link', ''),
+            update_time=clean_val(details.get('update_time_str')),
+            synopsis=clean_val(details.get('synopsis')),
+            link=clean_val(details.get('link')),
             image_url=details.get('image_url'),
             reviews=details.get('reviews', [])
         )

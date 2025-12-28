@@ -9,5 +9,11 @@
     "description": "youshu.me网址的Cookie（如cf_clearance=）",
     "type": "string",
     "default": ""
+  },
+  "enable_official_metadata": {
+    "description": "正版元数据补全",
+    "hint": "目前仅支持起点中文网的正版元数据补全",
+    "type": "bool",
+    "default": false
   }
 }

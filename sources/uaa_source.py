@@ -7,7 +7,13 @@ from urllib.parse import urljoin
 from astrbot.api import logger
 
 from .base_source import BaseSource
-from ..main import Book, SearchResult, HS_HEADERS
+from ..main import Book, SearchResult
+
+HS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+}
 
 class UaaSource(BaseSource):
     """UAA 网站数据源 (hs)"""
@@ -36,7 +42,7 @@ class UaaSource(BaseSource):
                 model = json_data["model"]
                 raw_results = model.get("data", [])
                 total_pages = model.get("totalPage", 1)
-                logger.info(f"✅ HS API 搜索 '{keyword}' (Page {page}) 成功，找到 {len(raw_results)} 条结果，共 {total_pages} 页。")
+                logger.info(f"✅ HS API 搜索 '{keyword}' (第 {page} 页) 成功，找到 {len(raw_results)} 条结果，共 {total_pages} 页。")
 
                 books = []
                 for raw_book in raw_results:
@@ -44,7 +50,7 @@ class UaaSource(BaseSource):
                         id=str(raw_book.get('id', '')),
                         title=raw_book.get('title', '未知书籍'),
                         author=raw_book.get('authors', '未知作者'),
-                        score=str(raw_book.get('score', 'N/A')) if raw_book.get('score') is not None else 'N/A'
+                        score=str(raw_book.get('score', '暂无')) if raw_book.get('score') is not None else '暂无'
                     )
                     books.append(book)
 
@@ -70,31 +76,31 @@ class UaaSource(BaseSource):
             def clean_text(text):
                 return text.strip() if text else '无'
 
-            # Extract title
+            # 提取标题
             title_match = re.search(r'<h1>(.*?)</h1>', html_content)
             novel_info['title'] = clean_text(title_match.group(1)) if title_match else '无'
 
-            # Extract author
+            # 提取作者
             author_match = re.search(r'作者：\s*<a.*?>(.*?)</a>', html_content)
             novel_info['author'] = clean_text(author_match.group(1)) if author_match else '无'
 
-            # Extract status
+            # 提取状态
             status_match = re.search(r'<span class="update_state">状态：(.*?)</span>', html_content)
             novel_info['status'] = clean_text(status_match.group(1)) if status_match else '无'
 
-            # Extract score
+            # 提取评分
             score_match = re.search(r'评分：<span>(.*?)</span>', html_content)
             novel_info['score'] = clean_text(score_match.group(1)) if score_match else '无'
 
-            # Extract intro
+            # 提取简介
             intro_match = re.search(r'<div class="txt ellipsis">小说简介：(.*?)(?:</div>|<div class="arrow")', html_content, re.DOTALL)
             novel_info['intro'] = clean_text(intro_match.group(1)) if intro_match else '无'
 
-            # Extract tags
+            # 提取标签
             tags = re.findall(r'<li><a href="/novel/list\?tag=.*?"><b>#</b>(.*?)</a></li>', html_content)
             novel_info['tags'] = tags if tags else []
 
-            # Extract categories
+            # 提取题材
             category_block_match = re.search(r'<div class="item">\s*题材：\s*(.*?)</div>', html_content, re.DOTALL)
             if category_block_match:
                 categories = re.findall(r'<a.*?>(.*?)</a>', category_block_match.group(1))
@@ -102,32 +108,31 @@ class UaaSource(BaseSource):
             else:
                 novel_info['categories'] = []
 
-            # Extract latest update
+            # 提取最新章节
             update_match = re.search(r'<div class="item">\s*最新：(.*?)\s*</div>', html_content)
             novel_info['latest_chapter'] = clean_text(update_match.group(1)) if update_match else None
 
-            # Extract update time if available (HS intro page usually shows latest chapter instead of time directly in that spot)
-            # but let's see if there's a status line with time.
+            # 提取最后更新时间
             update_time_match = re.search(r'最后更新：\s*(.*?)\s*</div>', html_content)
             novel_info['update_time'] = clean_text(update_time_match.group(1)) if update_time_match else None
 
-            # Extract word count, popularity, and meat ratio from props_box
+            # 从 props_box 中提取字数、热度和多肉度
             props_match = re.search(r'<div class="props_box"[^>]*?>\s*<ul>(.*?)</ul>', html_content, re.DOTALL)
             if props_match:
                 props_html = props_match.group(1)
-                # Meat ratio (多肉)
+                # 肉度
                 meat_match = re.search(r'<li>\s*<img src="/image/rou\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
                 novel_info['meat_ratio'] = clean_text(meat_match.group(1)) if meat_match else None
                 
-                # Word count
+                # 字数
                 word_match = re.search(r'<li>\s*<img src="/image/word_count\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
                 novel_info['word_count'] = clean_text(word_match.group(1)) if word_match else None
                 
-                # Popularity/Collect
+                # 收藏数 (热度)
                 collect_match = re.search(r'<li>\s*<img src="/image/collect\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
                 novel_info['popularity'] = f"{clean_text(collect_match.group(1))}人收藏" if collect_match else None
 
-            # Get reviews
+            # 获取书评
             reviews = []
             try:
                 comments_url = urljoin(self.uaa_base_url, "/api/novel/app/novel/comments")
@@ -151,12 +156,12 @@ class UaaSource(BaseSource):
                                 'score': score_val,
                                 'time': item.get('createTimeFormat', '')
                             })
-                        logger.info(f"✅ 成功获取到 {len(reviews)} 条书评 for ID {book_id}")
+                        logger.info(f"✅ 成功获取到 {len(reviews)} 条书评 (ID: {book_id})")
             except Exception as e:
-                logger.warning(f"⚠️ 获取书评失败 for ID {book_id} (可能需要登录或接口失效): {e}")
+                logger.warning(f"⚠️ 获取书评失败 (ID: {book_id})，可能需要登录或接口失效: {e}")
 
-            # Create and return Book object
-            all_tags = novel_info['tags'][:]  # Copy the tags list
+            # 创建并返回 Book 对象
+            all_tags = novel_info['tags'][:]  # 复制标签列表
 
             book = Book(
                 id=book_id,

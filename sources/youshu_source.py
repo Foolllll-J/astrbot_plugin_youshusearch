@@ -7,7 +7,23 @@ from urllib.parse import urljoin, quote
 from astrbot.api import logger
 
 from .base_source import BaseSource
-from ..main import Book, SearchResult, YS_PLATFORMS, YS_CATEGORIES, YS_STATUSES, YS_API1_HEADERS, YS_API2_HEADERS
+from ..main import Book, SearchResult, YS_PLATFORMS, YS_CATEGORIES, YS_STATUSES
+
+YS_API1_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+}
+
+YS_API2_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+}
 
 class YoushuSearchStrategy:
     """优书网搜索策略接口"""
@@ -33,7 +49,7 @@ class YpshuoStrategy(YoushuSearchStrategy):
             async with session.get(search_api_url, params=params, headers=self.headers, timeout=20) as response:
                 response.raise_for_status()
                 json_content = await response.json()
-                logger.info(f"搜索 '{keyword}' (Page {page}) API调用成功。")
+                logger.info(f"搜索 '{keyword}' (第 {page} 页) API调用成功。")
                 if json_content.get("code") == "00" and "data" in json_content:
                     data = json_content["data"]
                     results = data.get("data", [])
@@ -61,7 +77,7 @@ class YpshuoStrategy(YoushuSearchStrategy):
                 return text if text else '无'
 
             novel_info = {}
-            # Extract image
+            # 提取封面图片
             og_image_match = re.search(r'<meta[^>]*?name="og:image"[^>]*?content="(.*?)"', html_content)
             if og_image_match:
                 image_url = og_image_match.group(1)
@@ -80,15 +96,15 @@ class YpshuoStrategy(YoushuSearchStrategy):
                 else:
                     novel_info['image_url'] = None
 
-            # Extract name
+            # 提取书名
             name_match = re.search(r'<h1 class="book-name".*?>(.*?)</h1>', html_content, re.DOTALL)
             novel_info['novel_name'] = name_match.group(1).strip() if name_match else '无'
 
-            # Extract author
+            # 提取作者
             author_match = re.search(r'作者：<span class="text-red-500".*?>(.*?)</span>', html_content)
             novel_info['author_name'] = author_match.group(1).strip() if author_match else '无'
 
-            # Extract tags
+            # 提取标签
             novel_info['tags'] = []
             tag_block_match = re.search(r'<div class="tag-list"[^>]*?>(.*?)</div>', html_content, re.DOTALL)
             if tag_block_match:
@@ -97,7 +113,7 @@ class YpshuoStrategy(YoushuSearchStrategy):
                 if tags_list:
                     novel_info['tags'] = [tag.strip() for tag in tags_list if tag.strip()]
 
-            # Extract word count
+            # 提取字数
             word_count_match = re.search(r'字数：(.*?)万字', html_content)
             if word_count_match:
                 try:
@@ -108,7 +124,7 @@ class YpshuoStrategy(YoushuSearchStrategy):
             else:
                 novel_info['word_number'] = None
 
-            # Extract score and scorer
+            # 提取评分和评分人数
             score_data_matches = re.findall(r'<div class="item"[^>]*?>\s*<p class="score"[^>]*?>\s*(.*?)\s*</p>\s*<p[^>]*?>(.*?)</p>\s*</div>', html_content, re.DOTALL)
             novel_info['score'] = '无'
             novel_info['scorer'] = '无'
@@ -118,15 +134,15 @@ class YpshuoStrategy(YoushuSearchStrategy):
                 elif label.strip() == '评分人数':
                     novel_info['scorer'] = value.strip()
 
-            # Extract status
+            # 提取状态
             status_match = re.search(r'状态：\s*(.*?)\s*<', html_content)
             novel_info['status'] = status_match.group(1).strip() if status_match else '无'
 
-            # Extract update time
+            # 提取更新时间
             update_time_match = re.search(r'更新时间：\s*(.*?)\s*</div>', html_content)
             novel_info['update_time_str'] = update_time_match.group(1).strip() if update_time_match else '无'
 
-            # Extract reviews
+            # 提取书评
             reviews = []
             review_item_regex = re.compile(
                 r'<div class="author-info"[^>]*?>(.*?)</div>'r'.*?'r'aria-valuenow="([^"]+)"'r'.*?'r'<span class="content-inner-details"[^>]*?>(.*?)</span>', re.DOTALL)
@@ -139,12 +155,12 @@ class YpshuoStrategy(YoushuSearchStrategy):
                     reviews.append({'author': author.strip(), 'content': content, 'rating': rating})
             novel_info['reviews'] = reviews
 
-            # Extract synopsis
+            # 提取简介
             synopsis_match = re.search(r'<div style="white-space:pre-wrap;"[^>]*?>(.*?)</div>', html_content, re.DOTALL)
             synopsis_content = synopsis_match.group(1).strip() if synopsis_match else '无'
             novel_info['synopsis'] = synopsis_content
 
-            # Extract link
+            # 提取链接
             link_match = re.search(r'<a href="(http.*?)".*?rel="nofollow".*?>', html_content)
             novel_info['link'] = link_match.group(1).strip() if link_match else '无'
 
@@ -252,40 +268,40 @@ class YoushuMeStrategy(YoushuSearchStrategy):
                 return text if text else '无'
 
             novel_info = {}
-            # Extract name
+            # 提取书名
             name_match = re.search(r'<title>(.*?)-.*?-优书网</title>', html_content)
             novel_info['novel_name'] = clean_html_content(name_match.group(1)) if name_match else '无'
 
-            # Extract author
+            # 提取作者
             author_match = re.search(r'作者：<a.*?>(.*?)</a>', html_content)
             novel_info['author_name'] = clean_html_content(author_match.group(1)) if author_match else '无'
 
-            # Extract score and scorer
+            # 提取评分和评分人数
             score_match = re.search(r'<span class="ratenum">(.*?)</span>', html_content)
             scorer_match = re.search(r'\((.*?)人已评\)', html_content)
             novel_info['score'] = clean_html_content(score_match.group(1)) if score_match else '无'
             novel_info['scorer'] = clean_html_content(scorer_match.group(1)) if scorer_match else '无'
 
-            # Extract update time
+            # 提取更新时间
             update_time_match = re.search(r'最后更新：(.*?)</td>', html_content)
             novel_info['update_time_str'] = clean_html_content(update_time_match.group(1)) if update_time_match else '无'
 
-            # Extract synopsis
+            # 提取简介
             synopsis_match = re.search(r'<div class="tabvalue"[^>]*?>\s*<div[^>]*?>(.*?)</div>', html_content, re.DOTALL)
             novel_info['synopsis'] = clean_html_content(synopsis_match.group(1)) if synopsis_match else '无'
 
-            # Extract link
+            # 提取链接
             link_match = re.search(r'<a class="btnlink b_hot mbs" href="(.*?)"', html_content)
             novel_info['link'] = clean_html_content(link_match.group(1)) if link_match else '无'
 
-            # Extract image
+            # 提取封面图片
             img_match = re.search(r'<a[^>]*?class="book-detail-img"[^>]*?><img src="(.*?)"', html_content)
             novel_info['image_url'] = urljoin(self.base_url, img_match.group(1).strip()) if img_match and img_match.group(1).strip() else None
 
-            # Set default values
+            # 设置默认值
             novel_info.update({'platform': '无', 'category': '无', 'status': '无', 'word_number': None})
 
-            # Extract platform, category, status, word count
+            # 提取平台、分类、状态、字数
             info_exp_match = re.search(r'<div class="author-item-exp">(.*?)</div>', html_content, re.DOTALL)
             if info_exp_match:
                 raw_text = info_exp_match.group(1).replace('<i class="author-item-line"></i>', '|')
@@ -303,7 +319,7 @@ class YoushuMeStrategy(YoushuSearchStrategy):
                         if word_match:
                             novel_info['word_number'] = float(word_match.group(1))
 
-            # Extract tags
+            # 提取标签
             novel_info['tags'] = []
             tag_section_match = re.search(r'<b>标签：</b>(.*?)</div>', html_content, re.DOTALL)
             if tag_section_match:
@@ -312,7 +328,7 @@ class YoushuMeStrategy(YoushuSearchStrategy):
                 if tags:
                     novel_info['tags'] = [clean_html_content(tag) for tag in tags]
 
-            # Extract reviews
+            # 提取书评
             reviews = []
             review_blocks = re.findall(r'<div class="c_row cf[^"]*">.*?<div class="c_tag">', html_content, re.DOTALL)
             for block in review_blocks[:5]:
@@ -341,7 +357,7 @@ class YoushuSource(BaseSource):
         self.base_api_url = config.get("base_url", "https://www.ypshuo.com/")
         self.cookie_string = config.get("cookie", "")
         
-        # Determine which strategy to use based on URL
+        # 根据 URL 决定使用的策略
         if self.base_api_url == "https://www.ypshuo.com/":
             self.strategy = YpshuoStrategy(self.base_api_url, YS_API1_HEADERS)
         else:
@@ -377,7 +393,7 @@ class YoushuSource(BaseSource):
         if not details or details.get('novel_name', '无') == '无':
             return None
 
-        # Create Book object from details, mapping '无'/'未知' to None for all optional fields
+        # 将书籍详情转换为 Book 对象，将占位符映射为 None
         def clean_val(val, placeholders=['无', '未知', 'N/A', '0', '']):
             if val in placeholders:
                 return None

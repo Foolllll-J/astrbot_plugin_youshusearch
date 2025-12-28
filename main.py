@@ -25,12 +25,12 @@ class Book:
     platform: Optional[str] = None
     category: Optional[str] = None
     tags: List[str] = None
-    categories: List[str] = None  # For HS-specific display of multiple categories
-    word_count: Optional[float] = None
+    categories: List[str] = None
+    word_count: Optional[Any] = None
     update_time: Optional[str] = None
-    last_chapter: Optional[str] = None # For HS latest chapter
-    meat_ratio: Optional[str] = None   # For HS unique attribute (e.g. 40.10%)
-    popularity: Optional[str] = None   # For book popularity/collect count
+    last_chapter: Optional[str] = None
+    meat_ratio: Optional[str] = None
+    popularity: Optional[str] = None
     synopsis: Optional[str] = None
     link: Optional[str] = None
     image_url: Optional[str] = None
@@ -51,34 +51,12 @@ class SearchResult:
     total_pages: int
     current_page: int = 1
 
-# Constants
+# 常量定义
 YS_PLATFORMS = {"他站", "本站", "起点", "晋江", "番茄", "刺猬猫", "纵横", "飞卢", "17K", "有毒", "息壤", "铁血", "逐浪", "掌阅", "塔读", "独阅读", "少年梦", "SF", "豆瓣", "知乎", "公众号"}
 YS_CATEGORIES = {"玄幻", "奇幻", "武侠", "仙侠", "都市", "现实", "军事", "历史", "悬疑", "游戏", "竞技", "科幻", "灵异", "二次元", "同人", "其他", "穿越时空", "架空历史", "总裁豪门", "都市言情", "仙侠奇缘", "幻想言情", "悬疑推理", "耽美纯爱", "衍生同人", "轻小说", "综合其他"}
 YS_STATUSES = {"连载中", "已完结", "已太监"}
 
-YS_API1_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-}
-
-YS_API2_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-}
-
-HS_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-}
-
-# State Manager
+# 状态管理器
 class SearchStateManager:
     """专门管理用户的搜索状态"""
 
@@ -92,7 +70,7 @@ class SearchStateManager:
                 "keyword": "",
                 "current_page": 1,
                 "max_pages": 1,
-                "search_type": "",  # "ys" or "hs"
+                "search_type": "",  # "ys" 或 "hs"
                 "results": []  # 保存当前页的搜索结果
             }
         return self.states[user_id]
@@ -105,7 +83,7 @@ class SearchStateManager:
         state["max_pages"] = max_pages
         state["search_type"] = search_type
         if results is not None:
-            # Convert Book objects to dictionaries for storage
+            # 将 Book 对象转换为字典存储
             state["results"] = [
                 {
                     "id": book.id,
@@ -126,14 +104,15 @@ class SearchStateManager:
             return None
         return results[number - 1]
 
-from .sources.youshu_source import YoushuSource
+from .sources.youshu_source import YoushuSource, YS_API1_HEADERS, YS_API2_HEADERS
 from .sources.uaa_source import UaaSource
+from .sources.qidian_source import QidianSource
 
 @register(
     "astrbot_plugin_youshusearch",  # 插件ID
     "Foolllll",                    # 作者名
     "优书搜索助手",                  # 插件显示名称
-    "1.5",                         # 版本号 (updated for refactoring)
+    "1.5",                         # 版本号
     "https://github.com/Foolllll-J/astrbot_plugin_youshusearch", # 插件仓库地址
 )
 class YoushuSearchPlugin(Star):
@@ -142,14 +121,18 @@ class YoushuSearchPlugin(Star):
         if config is None:
             config = {}
         
-        # Initialize sources
+        # 初始化数据源
         self.youshu_source = YoushuSource(config)
         self.uaa_source = UaaSource(config)
+        self.qidian_source = QidianSource()
         
-        # Initialize state manager
+        # 插件配置
+        self.enable_official_metadata = config.get("enable_official_metadata", False)
+        
+        # 初始化状态管理器
         self.state_mgr = SearchStateManager()
         
-        # Initialize global session
+        # 初始化全局会话
         self.session = aiohttp.ClientSession()
 
     def _get_item_by_number(self, user_id: str, number: int, search_type: str) -> Optional[Dict]:
@@ -166,8 +149,8 @@ class YoushuSearchPlugin(Star):
             num = start_num + i
             # 兼容评分显示，统一截取两位小数
             score = book.score
-            score_str = 'N/A'
-            if score and score != 'N/A':
+            score_str = '暂无'
+            if score and score != '暂无':
                 try:
                     score_str = f"{float(score):.2f}"
                 except (ValueError, TypeError):
@@ -177,10 +160,80 @@ class YoushuSearchPlugin(Star):
             message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score_str}{scorer_info}\n"
         
         cmd_prefix = f"/{search_type}"
-        message_text += f"\n💡 请使用 `{cmd_prefix} ls <序号>` 查看详情"
+        message_text += f"\n💡 请使用 `{cmd_prefix} <序号>` 查看详情"
         if results.total_pages > 1:
             message_text += f"\n💡 使用 {cmd_prefix} next 下一页，{cmd_prefix} prev 上一页"
         return message_text
+
+    async def _get_enriched_book_details(self, source, session, novel_id: str, title: Optional[str] = None) -> Optional[Book]:
+        """获取书籍详情，并根据配置进行正版元数据补全"""
+        book = await source.get_book_details(session, novel_id)
+        if not book:
+            return None
+            
+        search_title = title or book.title
+        if not search_title:
+            return book
+            
+        # 仅对优书网源且开启配置时进行补全
+        if self.enable_official_metadata and source == self.youshu_source:
+            try:
+                # 1. 搜索起点
+                qidian_results = await self.qidian_source.search_book(search_title)
+                if not qidian_results:
+                    return book
+                    
+                # 2. 检查前两个结果是否有完全匹配的书名
+                match_book = None
+                for qb in qidian_results[:2]:
+                    if qb.get('name') == search_title:
+                        match_book = qb
+                        break
+                
+                if match_book:
+                    # 3. 获取起点详情
+                    q_details = await self.qidian_source.get_book_details(match_book['url'])
+                    if q_details:
+                        # 4. 覆盖元数据（排除评分和评分人数）
+                        if q_details.get('author'): book.author = q_details['author']
+                        if q_details.get('status'): book.status = q_details['status']
+                        if q_details.get('category'): book.category = q_details['category']
+                        if q_details.get('tags'): book.tags = q_details['tags']
+                        if q_details.get('word_count'): book.word_count = q_details['word_count']
+                        if q_details.get('last_update'): book.update_time = q_details['last_update']
+                        if q_details.get('last_chapter'): book.last_chapter = q_details['last_chapter']
+                        if q_details.get('intro'): book.synopsis = q_details['intro']
+                        if q_details.get('cover'): book.image_url = q_details['cover']
+                        
+                        # 5. 组合热度信息 (排行、收藏、推荐)
+                        pop_parts = []
+                        if q_details.get('rank') and q_details['rank'] != '未上榜':
+                            pop_parts.append(f"排名:{q_details['rank']}")
+                        if q_details.get('collection'):
+                            pop_parts.append(f"收藏:{q_details['collection']}")
+                        if q_details.get('all_recommend'):
+                            pop_parts.append(f"推荐:{q_details['all_recommend']}")
+                        
+                        if pop_parts:
+                            book.popularity = " | ".join(map(str, pop_parts))
+                            
+            except Exception as e:
+                logger.error(f"正版元数据补全失败: {e}")
+                
+        return book
+
+    def _clean_synopsis(self, text):
+        """清理简介文本格式 (参考 webnovel_info)"""
+        if not text:
+            return ""
+        # 移除HTML标签
+        text = re.sub(r'</?p>|<br\s*/?>', '\n', text)
+        text = re.sub(r'<[^>]+>', '', text)
+        # 替换HTML特殊字符
+        text = text.replace("&nbsp;", " ").replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">")
+        # 清理空行并格式化缩进
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        return "　　" + "\n　　".join(lines)
 
     async def _render_book_details(self, event: AstrMessageEvent, book: Book):
         """统一渲染书籍详情并返回事件结果"""
@@ -188,7 +241,7 @@ class YoushuSearchPlugin(Star):
         
         # 核心信息：作者
         if book.author:
-            message_text += f"作者: {book.author}\n"
+            message_text += f"👤 作者: {book.author}\n"
 
         # 评分数据
         if book.score:
@@ -197,59 +250,60 @@ class YoushuSearchPlugin(Star):
             except (ValueError, TypeError):
                 formatted_score = book.score
             scorer_info = f" ({book.scorer}人评分)" if book.scorer else ""
-            message_text += f"评分: {formatted_score}{scorer_info}\n"
+            message_text += f"⭐ 评分: {formatted_score}{scorer_info}\n"
 
         # 平台、分类/题材
         if book.platform:
-            message_text += f"平台: {book.platform}\n"
+            message_text += f"🌐 平台: {book.platform}\n"
             
         # HS 网站显示“题材”，其他显示“分类”
         if book.categories: # HS 特有
-            message_text += f"题材: {' '.join(book.categories)}\n"
+            message_text += f"🏷️ 题材: {' '.join(book.categories)}\n"
         elif book.category:
-            message_text += f"分类: {book.category}\n"
+            message_text += f"📂 分类: {book.category}\n"
 
         # 标签
         if book.tags:
-            message_text += f"标签: {' '.join(book.tags)}\n"
+            message_text += f"🔖 标签: {' '.join(book.tags)}\n"
 
         # 字数
         if book.word_count is not None:
             if isinstance(book.word_count, str) and ('K' in book.word_count or 'M' in book.word_count):
-                 message_text += f"字数: {book.word_count}\n"
+                 message_text += f"📏 字数: {book.word_count}\n"
             else:
                  try:
-                     message_text += f"字数: {float(book.word_count) / 10000:.2f}万字\n"
+                     message_text += f"📏 字数: {float(book.word_count) / 10000:.2f}万字\n"
                  except:
-                     message_text += f"字数: {book.word_count}\n"
+                     message_text += f"📏 字数: {book.word_count}\n"
 
         # 状态
         if book.status:
-            message_text += f"状态: {book.status}\n"
+            message_text += f"🔄 状态: {book.status}\n"
 
-        # 多肉度 (uaa 独特)
+        # 肉度 (uaa)
         if book.meat_ratio:
-            message_text += f"肉度: {book.meat_ratio}\n"
+            message_text += f"🥩 肉度: {book.meat_ratio}\n"
 
-        # 热度 / 收藏 (uaa 独特)
+        # 热度 / 收藏
         if book.popularity:
-            message_text += f"热度: {book.popularity}\n"
+            message_text += f"🔥 热度: {book.popularity}\n"
 
         # 更新信息
         if book.update_time:
-            message_text += f"更新: {book.update_time}\n"
+            message_text += f"🕒 最后更新: {book.update_time}\n"
         
-        # HS 特有：最新章节
+        # 最新章节
         if book.last_chapter:
-            message_text += f"最新: {book.last_chapter}\n"
+            message_text += f"🆕 最新章节: {book.last_chapter}\n"
 
         # 简介
         if book.synopsis:
-            message_text += f"简介: {book.synopsis}\n"
+            cleaned_synopsis = self._clean_synopsis(book.synopsis)
+            message_text += f"📝 简介: \n{cleaned_synopsis}\n"
 
         # 链接
         if book.link:
-            message_text += f"链接: {book.link}\n"
+            message_text += f"🔗 链接: {book.link}\n"
 
         # 书评内容
         if book.reviews:
@@ -355,64 +409,6 @@ class YoushuSearchPlugin(Star):
             logger.error(f"翻页失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
 
-    async def _handle_ls_detail(self, event: AstrMessageEvent, search_type: str, index: str):
-        """处理详情查看逻辑"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-        source = self.youshu_source if search_type == "ys" else self.uaa_source
-
-        if not state.get("keyword") or state.get("search_type") != search_type:
-            yield event.plain_result(f"🤔 没有可用的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
-            return
-
-        if not index or not index.isdigit():
-            yield event.plain_result(f"❌ 请提供有效的序号，例如：/{search_type} ls 1")
-            return
-
-        item_index = int(index)
-        results_per_page = 20
-        current_page = state.get("current_page", 1)
-        correct_page = (item_index - 1) // results_per_page + 1
-
-        if correct_page != current_page:
-            keyword = state["keyword"]
-            try:
-                yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
-                search_result = await source.search(self.session, keyword, correct_page)
-                if search_result is None or not search_result.books:
-                    yield event.plain_result(f"😢 无法加载第 {correct_page} 页。")
-                    return
-                self.state_mgr.update_state(user_id, keyword, correct_page, search_result.total_pages, search_type, search_result.books)
-                state = self.state_mgr.get_state(user_id) # 重新获取更新后的状态
-            except Exception as e:
-                logger.error(f"加载页面失败: {e}", exc_info=True)
-                yield event.plain_result(f"❌ 加载页面时发生错误: {str(e)}")
-                return
-
-        index_on_page = (item_index - 1) % results_per_page
-        results = state.get("results", [])
-
-        if not (0 <= index_on_page < len(results)):
-            yield event.plain_result(f"❌ 序号【{item_index}】不存在。")
-            return
-
-        selected_book = results[index_on_page]
-        novel_id = selected_book.get('id')
-        if not novel_id:
-            yield event.plain_result(f"❌ 无法获取序号为【{item_index}】的书籍ID。")
-            return
-
-        try:
-            book_details = await source.get_book_details(self.session, str(novel_id))
-            if book_details:
-                async for result in self._render_book_details(event, book_details):
-                    yield result
-            else:
-                yield event.plain_result(f"😢 无法获取书籍详情。")
-        except Exception as e:
-            logger.error(f"获取详情失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 获取详情时发生错误: {str(e)}")
-
     @filter.command("ys", alias={"优书"})
     async def youshu_search_command(self, event: AstrMessageEvent):
         """
@@ -474,7 +470,7 @@ class YoushuSearchPlugin(Star):
         logger.info(f"用户 {user_id} 触发 /ys, 搜索:'{book_name}', 序号:{item_index}, 列表页:{page_to_list}")
         
         try:
-            # Search for books
+            # 搜索书籍
             search_result = await self.youshu_source.search(self.session, book_name, page_to_list)
             if search_result is None or not search_result.books:
                 yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
@@ -484,13 +480,13 @@ class YoushuSearchPlugin(Star):
                 yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果最多只有 {search_result.total_pages} 页。")
                 return
 
-            # Update user search state
+            # 更新用户搜索状态
             self.state_mgr.update_state(user_id, book_name, page_to_list, search_result.total_pages, "ys", search_result.books)
 
             if item_index is None and len(search_result.books) == 1 and search_result.total_pages == 1:
-                # If only one result and only one page, show details directly
+                # 如果只有一页且只有一个结果，直接显示详情
                 selected_book = search_result.books[0]
-                book_details = await self.youshu_source.get_book_details(self.session, selected_book.id)
+                book_details = await self._get_enriched_book_details(self.youshu_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
                     async for result in self._render_book_details(event, book_details):
                         yield result
@@ -499,31 +495,30 @@ class YoushuSearchPlugin(Star):
                 return
             
             if item_index is None:
-                # Show search results list
+                # 显示搜索结果列表
                 message_text = self._render_search_results(book_name, search_result, page_to_list, "ys")
                 yield event.plain_result(message_text)
             else:
-                # Show details for specific book
+                # 显示特定书籍的详情
                 results_per_page = 20
                 index_on_page = (item_index - 1) % results_per_page
                 correct_page = (item_index - 1) // results_per_page + 1
 
                 if correct_page != page_to_list:
                     yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
-                    page_to_fetch = correct_page
-                    search_result = await self.youshu_source.search(self.session, book_name, page_to_fetch)
+                    search_result = await self.youshu_source.search(self.session, book_name, correct_page)
                     if search_result is None or not search_result.books:
                         yield event.plain_result(f"😢 未在第 {correct_page} 页找到关于【{book_name}】的信息。")
                         return
-                    # Update state to correct page
-                    self.state_mgr.update_state(user_id, book_name, page_to_fetch, search_result.total_pages, "ys", search_result.books)
+                    # 更新状态至正确页面
+                    self.state_mgr.update_state(user_id, book_name, correct_page, search_result.total_pages, "ys", search_result.books)
 
                 if not (0 <= index_on_page < len(search_result.books)):
-                    yield event.plain_result(f"❌ 序号【{item_index}】在第 {page_to_fetch} 页上不存在。")
+                    yield event.plain_result(f"❌ 序号【{item_index}】在第 {correct_page} 页上不存在。")
                     return
 
                 selected_book = search_result.books[index_on_page]
-                book_details = await self.youshu_source.get_book_details(self.session, selected_book.id)
+                book_details = await self._get_enriched_book_details(self.youshu_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
                     async for result in self._render_book_details(event, book_details):
                         yield result
@@ -594,7 +589,7 @@ class YoushuSearchPlugin(Star):
         logger.info(f"用户 {user_id} 触发 /hs, 搜索:'{book_name}', 序号:{item_index}, 列表页:{page_to_list}")
 
         try:
-            # Search for books
+            # 搜索书籍
             search_result = await self.uaa_source.search(self.session, book_name, page_to_list)
             if search_result is None or not search_result.books:
                 yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
@@ -604,13 +599,13 @@ class YoushuSearchPlugin(Star):
                 yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果最多只有 {search_result.total_pages} 页。")
                 return
 
-            # Update user search state
+            # 更新用户搜索状态
             self.state_mgr.update_state(user_id, book_name, page_to_list, search_result.total_pages, "hs", search_result.books)
 
             if item_index is None and len(search_result.books) == 1 and search_result.total_pages == 1:
-                # If only one result and only one page, show details directly
+                # 如果只有一页且只有一个结果，直接显示详情
                 selected_book = search_result.books[0]
-                book_details = await self.uaa_source.get_book_details(self.session, selected_book.id)
+                book_details = await self._get_enriched_book_details(self.uaa_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
                     async for result in self._render_book_details(event, book_details):
                         yield result
@@ -628,20 +623,19 @@ class YoushuSearchPlugin(Star):
 
                 if correct_page != page_to_list:
                     yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
-                    page_to_fetch = correct_page
-                    search_result = await self.uaa_source.search(self.session, book_name, page_to_fetch)
+                    search_result = await self.uaa_source.search(self.session, book_name, correct_page)
                     if search_result is None or not search_result.books:
                         yield event.plain_result(f"😢 未在第 {correct_page} 页找到关于【{book_name}】的信息。")
                         return
-                    # Update state to correct page
-                    self.state_mgr.update_state(user_id, book_name, page_to_fetch, search_result.total_pages, "hs", search_result.books)
+                    # 更新状态至正确页面
+                    self.state_mgr.update_state(user_id, book_name, correct_page, search_result.total_pages, "hs", search_result.books)
 
                 if not (0 <= index_on_page < len(search_result.books)):
-                    yield event.plain_result(f"❌ 序号【{item_index}】在第 {page_to_fetch} 页上不存在。")
+                    yield event.plain_result(f"❌ 序号【{item_index}】在第 {correct_page} 页上不存在。")
                     return
 
                 selected_book = search_result.books[index_on_page]
-                book_details = await self.uaa_source.get_book_details(self.session, selected_book.id)
+                book_details = await self._get_enriched_book_details(self.uaa_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
                     async for result in self._render_book_details(event, book_details):
                         yield result
@@ -653,42 +647,26 @@ class YoushuSearchPlugin(Star):
 
     async def _get_latest_novel_id(self) -> Optional[int]:
         """获取最新小说ID"""
-        # Use the appropriate source based on the current API being used
-        # For now, we'll try to get the latest ID from the youshu source
-        # This is a simplified implementation - in reality this would need to be
-        # implemented in the source classes
         try:
-            # Determine which URL to use based on the config
+            # 根据配置决定使用的 URL
             config = self.youshu_source.config
             base_url = config.get("base_url", "https://www.ypshuo.com/")
 
             if base_url == "https://www.ypshuo.com/":
                 url = "https://www.ypshuo.com/"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    "Accept": "application/json, text/plain, */*",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Connection": "keep-alive",
-                }
+                headers = YS_API1_HEADERS
             else:
                 url = "https://youshu.me/"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive",
-                }
+                headers = YS_API2_HEADERS
 
             async with self.session.get(url, headers=headers, timeout=10) as response:
                 response.raise_for_status()
                 html_content = await response.text()
 
-                # Look for novel IDs in the HTML
+                # 在 HTML 中查找小说 ID
                 matches = re.findall(r'href="/novel/(\d+)\.html"|href="/book/(\d+)"', html_content)
                 if matches:
-                    # Flatten the matches (each match is a tuple of (id1, id2))
+                    # 展开匹配结果 (每个匹配项是 (id1, id2) 的元组)
                     all_ids = []
                     for match in matches:
                         id1, id2 = match
@@ -724,7 +702,7 @@ class YoushuSearchPlugin(Star):
             random_id = random.randint(1, latest_id)
             logger.info(f"第 {attempt + 1}/{max_retries} 次尝试随机ID: {random_id}")
             try:
-                book_details = await self.youshu_source.get_book_details(self.session, str(random_id))
+                book_details = await self._get_enriched_book_details(self.youshu_source, self.session, str(random_id))
                 if book_details:
                     async for result in self._render_book_details(event, book_details):
                         yield result

@@ -290,35 +290,187 @@ class YoushuSearchPlugin(Star):
         chain.append(Comp.Plain(message_text.strip()))
         yield event.chain_result(chain)
 
-    @filter.command("ys")
-    async def youshu_search_command(self, event: AstrMessageEvent):
-        command_text = event.message_str.strip()
-        command_parts = command_text.split()
-        if not command_parts or command_parts[0].lower() != 'ys' or len(command_parts) < 2:
-            yield event.plain_result("❌ 用法: /ys <书名> [序号 | -页码]\n💡 或使用 /ys ls <序号>、/ys next、/ys prev")
+    async def _handle_next_page(self, event: AstrMessageEvent, search_type: str):
+        """处理下一页逻辑"""
+        user_id = event.get_sender_id()
+        state = self.state_mgr.get_state(user_id)
+        source = self.youshu_source if search_type == "ys" else self.uaa_source
+
+        if not state.get("keyword") or state.get("search_type") != search_type:
+            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
             return
 
-        # 如果是 next、prev 或 ls，跳过处理，交给命令组子命令
-        if len(command_parts) >= 2 and command_parts[1].lower() in ['next', 'prev', 'ls']:
+        current_page = state.get("current_page", 1)
+        max_pages = state.get("max_pages", 1)
+
+        if current_page >= max_pages:
+            yield event.plain_result("➡️ 已经是最后一页了。")
+            return
+
+        next_page = current_page + 1
+        keyword = state["keyword"]
+
+        try:
+            search_result = await source.search(self.session, keyword, next_page)
+            if search_result is None or not search_result.books:
+                yield event.plain_result(f"😢 无法加载第 {next_page} 页。")
+                return
+
+            self.state_mgr.update_state(user_id, keyword, next_page, search_result.total_pages, search_type, search_result.books)
+            message_text = self._render_search_results(keyword, search_result, next_page, search_type)
+            yield event.plain_result(message_text)
+        except Exception as e:
+            logger.error(f"翻页失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
+
+    async def _handle_prev_page(self, event: AstrMessageEvent, search_type: str):
+        """处理上一页逻辑"""
+        user_id = event.get_sender_id()
+        state = self.state_mgr.get_state(user_id)
+        source = self.youshu_source if search_type == "ys" else self.uaa_source
+
+        if not state.get("keyword") or state.get("search_type") != search_type:
+            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
+            return
+
+        current_page = state.get("current_page", 1)
+
+        if current_page <= 1:
+            yield event.plain_result("⬅️ 已经是第一页了。")
+            return
+
+        prev_page = current_page - 1
+        keyword = state["keyword"]
+
+        try:
+            search_result = await source.search(self.session, keyword, prev_page)
+            if search_result is None or not search_result.books:
+                yield event.plain_result(f"😢 无法加载第 {prev_page} 页。")
+                return
+
+            self.state_mgr.update_state(user_id, keyword, prev_page, search_result.total_pages, search_type, search_result.books)
+            message_text = self._render_search_results(keyword, search_result, prev_page, search_type)
+            yield event.plain_result(message_text)
+        except Exception as e:
+            logger.error(f"翻页失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
+
+    async def _handle_ls_detail(self, event: AstrMessageEvent, search_type: str, index: str):
+        """处理详情查看逻辑"""
+        user_id = event.get_sender_id()
+        state = self.state_mgr.get_state(user_id)
+        source = self.youshu_source if search_type == "ys" else self.uaa_source
+
+        if not state.get("keyword") or state.get("search_type") != search_type:
+            yield event.plain_result(f"🤔 没有可用的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
+            return
+
+        if not index or not index.isdigit():
+            yield event.plain_result(f"❌ 请提供有效的序号，例如：/{search_type} ls 1")
+            return
+
+        item_index = int(index)
+        results_per_page = 20
+        current_page = state.get("current_page", 1)
+        correct_page = (item_index - 1) // results_per_page + 1
+
+        if correct_page != current_page:
+            keyword = state["keyword"]
+            try:
+                yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
+                search_result = await source.search(self.session, keyword, correct_page)
+                if search_result is None or not search_result.books:
+                    yield event.plain_result(f"😢 无法加载第 {correct_page} 页。")
+                    return
+                self.state_mgr.update_state(user_id, keyword, correct_page, search_result.total_pages, search_type, search_result.books)
+                state = self.state_mgr.get_state(user_id) # 重新获取更新后的状态
+            except Exception as e:
+                logger.error(f"加载页面失败: {e}", exc_info=True)
+                yield event.plain_result(f"❌ 加载页面时发生错误: {str(e)}")
+                return
+
+        index_on_page = (item_index - 1) % results_per_page
+        results = state.get("results", [])
+
+        if not (0 <= index_on_page < len(results)):
+            yield event.plain_result(f"❌ 序号【{item_index}】不存在。")
+            return
+
+        selected_book = results[index_on_page]
+        novel_id = selected_book.get('id')
+        if not novel_id:
+            yield event.plain_result(f"❌ 无法获取序号为【{item_index}】的书籍ID。")
+            return
+
+        try:
+            book_details = await source.get_book_details(self.session, str(novel_id))
+            if book_details:
+                async for result in self._render_book_details(event, book_details):
+                    yield result
+            else:
+                yield event.plain_result(f"😢 无法获取书籍详情。")
+        except Exception as e:
+            logger.error(f"获取详情失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 获取详情时发生错误: {str(e)}")
+
+    @filter.command("ys", alias={"优书"})
+    async def youshu_search_command(self, event: AstrMessageEvent):
+        """
+        优书网搜索命令
+        用法: /ys <书名> [序号 | -页码]
+        别名: /优书
+        """
+        # 获取所有参数部分（排除开头的 /ys 或 /优书）
+        message_str = event.message_str.strip()
+        parts = message_str.split()
+        if len(parts) < 2:
+            yield event.plain_result("❌ 用法: /ys <书名> [序号 | -页码]\n💡 示例: /ys 剑来 1 (查看第一项)、/ys 剑来 -2 (查看第二页)")
+            return
+        
+        # 获取指令名之后的实际参数列表
+        args = parts[1:]
+
+        # 整合子命令逻辑
+        sub_cmd = args[0].lower()
+        if sub_cmd == "next":
+            async for res in self._handle_next_page(event, "ys"): yield res
+            return
+        elif sub_cmd == "prev":
+            async for res in self._handle_prev_page(event, "ys"): yield res
             return
 
         user_id = event.get_sender_id()
-        args = command_parts[1:]
         book_name, page_to_list, item_index = "", 1, None
-        last_arg = args[-1] if args else ""
-        if len(args) > 1 and last_arg.startswith('-') and last_arg[1:].isdigit():
-            page_to_list = int(last_arg[1:])
-            if page_to_list == 0: page_to_list = 1
-            book_name = " ".join(args[:-1]).strip()
-        elif len(args) > 1 and last_arg.isdigit():
-            item_index = int(last_arg)
-            if item_index == 0: item_index = None
-            book_name = " ".join(args[:-1]).strip()
+
+        # 检查是否是 /ys <序号> 这种简写形式
+        if len(args) == 1 and args[0].isdigit():
+            # 获取用户最后一次搜索的状态
+            state = self.state_mgr.get_state(user_id)
+            if state.get("keyword") and state.get("search_type") == "ys":
+                book_name = state["keyword"]
+                item_index = int(args[0])
+                page_to_list = state.get("current_page", 1)
+            else:
+                yield event.plain_result("🤔 请先使用 /ys <书名> 进行搜索。")
+                return
         else:
-            book_name = " ".join(args).strip()
+            # 原有的参数解析逻辑
+            last_arg = args[-1] if args else ""
+            if len(args) > 1 and last_arg.startswith('-') and last_arg[1:].isdigit():
+                page_to_list = int(last_arg[1:])
+                if page_to_list == 0: page_to_list = 1
+                book_name = " ".join(args[:-1]).strip()
+            elif len(args) > 1 and last_arg.isdigit():
+                item_index = int(last_arg)
+                if item_index == 0: item_index = None
+                book_name = " ".join(args[:-1]).strip()
+            else:
+                book_name = " ".join(args).strip()
+
         if not book_name:
             yield event.plain_result("❌ 请提供有效的书名进行搜索。")
             return
+        
         logger.info(f"用户 {user_id} 触发 /ys, 搜索:'{book_name}', 序号:{item_index}, 列表页:{page_to_list}")
         
         try:
@@ -381,37 +533,64 @@ class YoushuSearchPlugin(Star):
             logger.error(f"搜索书籍 '{book_name}' 失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 搜索书籍时发生未知错误: {str(e)}")
 
-    @filter.command("hs")
+    @filter.command("hs", alias={"皇叔", "黄书"})
     async def hs_search_command(self, event: AstrMessageEvent):
-        command_text = event.message_str.strip()
-        command_parts = command_text.split()
-
-        if not command_parts or command_parts[0].lower() != 'hs' or len(command_parts) < 2:
-            yield event.plain_result("❌ 用法: /hs <书名> [序号 | -页码]\n💡 或使用 /hs ls <序号>、/hs next、/hs prev")
+        """
+        皇叔搜索命令
+        用法: /hs <书名> [序号 | -页码]
+        别名: /皇叔, /黄书
+        """
+        # 获取所有参数部分（排除开头的 /hs 或 /皇叔等）
+        message_str = event.message_str.strip()
+        parts = message_str.split()
+        if len(parts) < 2:
+            yield event.plain_result("❌ 用法: /hs <书名> [序号 | -页码]\n💡 示例: /hs 剑来 1 (查看第一项)、/hs 剑来 -2 (查看第二页)")
             return
+        
+        # 获取指令名之后的实际参数列表
+        args = parts[1:]
 
-        # 如果是 next、prev 或 ls，跳过处理，交给命令组子命令
-        if len(command_parts) >= 2 and command_parts[1].lower() in ['next', 'prev', 'ls']:
+        # 整合子命令逻辑
+        sub_cmd = args[0].lower()
+        if sub_cmd == "next":
+            async for res in self._handle_next_page(event, "hs"): yield res
+            return
+        elif sub_cmd == "prev":
+            async for res in self._handle_prev_page(event, "hs"): yield res
             return
 
         user_id = event.get_sender_id()
-        args = command_parts[1:]
         book_name, page_to_list, item_index = "", 1, None
-        last_arg = args[-1] if args else ""
-        if len(args) > 1 and last_arg.startswith('-') and last_arg[1:].isdigit():
-            page_to_list = int(last_arg[1:])
-            if page_to_list == 0: page_to_list = 1
-            book_name = " ".join(args[:-1]).strip()
-        elif len(args) > 1 and last_arg.isdigit():
-            item_index = int(last_arg)
-            if item_index == 0: item_index = None
-            book_name = " ".join(args[:-1]).strip()
+
+        # 检查是否是 /hs <序号> 这种简写形式
+        if len(args) == 1 and args[0].isdigit():
+            # 获取用户最后一次搜索的状态
+            state = self.state_mgr.get_state(user_id)
+            if state.get("keyword") and state.get("search_type") == "hs":
+                book_name = state["keyword"]
+                item_index = int(args[0])
+                page_to_list = state.get("current_page", 1)
+            else:
+                yield event.plain_result("🤔 请先使用 /hs <书名> 进行搜索。")
+                return
         else:
-            book_name = " ".join(args).strip()
+            # 原有的参数解析逻辑
+            last_arg = args[-1] if args else ""
+            if len(args) > 1 and last_arg.startswith('-') and last_arg[1:].isdigit():
+                page_to_list = int(last_arg[1:])
+                if page_to_list == 0: page_to_list = 1
+                book_name = " ".join(args[:-1]).strip()
+            elif len(args) > 1 and last_arg.isdigit():
+                item_index = int(last_arg)
+                if item_index == 0: item_index = None
+                book_name = " ".join(args[:-1]).strip()
+            else:
+                book_name = " ".join(args).strip()
+
         if not book_name:
             yield event.plain_result("❌ 请提供有效的书名进行搜索。")
             return
-
+        
         logger.info(f"用户 {user_id} 触发 /hs, 搜索:'{book_name}', 序号:{item_index}, 列表页:{page_to_list}")
 
         try:
@@ -472,280 +651,6 @@ class YoushuSearchPlugin(Star):
             logger.error(f"搜索hs书籍 '{book_name}' 失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 搜索hs书籍时发生未知错误: {str(e)}")
 
-    @filter.command_group("ys")
-    def ys_group(self):
-        """优书搜索命令组"""
-        pass
-
-    @ys_group.command("next")
-    async def ys_next_page(self, event: AstrMessageEvent):
-        """下一页"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "ys":
-            yield event.plain_result("🤔 没有可供翻页的搜索结果，请先使用 /ys <书名> 进行搜索。")
-            return
-
-        current_page = state.get("current_page", 1)
-        max_pages = state.get("max_pages", 1)
-
-        if current_page >= max_pages:
-            yield event.plain_result("➡️ 已经是最后一页了。")
-            return
-
-        next_page = current_page + 1
-        keyword = state["keyword"]
-
-        try:
-            search_result = await self.youshu_source.search(self.session, keyword, next_page)
-            if search_result is None or not search_result.books:
-                yield event.plain_result(f"😢 无法加载第 {next_page} 页。")
-                return
-
-            # Update state
-            self.state_mgr.update_state(user_id, keyword, next_page, search_result.total_pages, "ys", search_result.books)
-
-            message_text = self._render_search_results(keyword, search_result, next_page, "ys")
-            yield event.plain_result(message_text)
-        except Exception as e:
-            logger.error(f"翻页失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
-
-    @ys_group.command("prev")
-    async def ys_prev_page(self, event: AstrMessageEvent):
-        """上一页"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "ys":
-            yield event.plain_result("🤔 没有可供翻页的搜索结果，请先使用 /ys <书名> 进行搜索。")
-            return
-
-        current_page = state.get("current_page", 1)
-
-        if current_page <= 1:
-            yield event.plain_result("⬅️ 已经是第一页了。")
-            return
-
-        prev_page = current_page - 1
-        keyword = state["keyword"]
-        max_pages = state.get("max_pages", 1)
-
-        try:
-            search_result = await self.youshu_source.search(self.session, keyword, prev_page)
-            if search_result is None or not search_result.books:
-                yield event.plain_result(f"😢 无法加载第 {prev_page} 页。")
-                return
-
-            # Update state
-            self.state_mgr.update_state(user_id, keyword, prev_page, search_result.total_pages, "ys", search_result.books)
-
-            message_text = self._render_search_results(keyword, search_result, prev_page, "ys")
-            yield event.plain_result(message_text)
-        except Exception as e:
-            logger.error(f"翻页失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
-
-    @ys_group.command("ls")
-    async def ys_list_or_detail(self, event: AstrMessageEvent, index: str = ""):
-        """查看指定序号的书籍详情"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "ys":
-            yield event.plain_result("🤔 没有可用的搜索结果，请先使用 /ys <书名> 进行搜索。")
-            return
-
-        if not index or not index.isdigit():
-            yield event.plain_result("❌ 请提供有效的序号，例如：/ys ls 1")
-            return
-
-        item_index = int(index)
-        results_per_page = 20
-        current_page = state.get("current_page", 1)
-
-        # 计算该序号应该在哪一页
-        correct_page = (item_index - 1) // results_per_page + 1
-
-        # 如果不在当前页，需要先加载对应页
-        if correct_page != current_page:
-            keyword = state["keyword"]
-            try:
-                yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
-                search_result = await self.youshu_source.search(self.session, keyword, correct_page)
-                if search_result is None or not search_result.books:
-                    yield event.plain_result(f"😢 无法加载第 {correct_page} 页。")
-                    return
-                # Update state
-                self.state_mgr.update_state(user_id, keyword, correct_page, search_result.total_pages, "ys", search_result.books)
-            except Exception as e:
-                logger.error(f"加载页面失败: {e}", exc_info=True)
-                yield event.plain_result(f"❌ 加载页面时发生错误: {str(e)}")
-                return
-
-        # 从当前页结果中获取对应的书籍
-        index_on_page = (item_index - 1) % results_per_page
-        results = state.get("results", [])
-
-        if not (0 <= index_on_page < len(results)):
-            yield event.plain_result(f"❌ 序号【{item_index}】不存在。")
-            return
-
-        selected_book = results[index_on_page]
-        novel_id = selected_book.get('id')
-        if not novel_id:
-            yield event.plain_result(f"❌ 无法获取序号为【{item_index}】的书籍ID。")
-            return
-
-        try:
-            book_details = await self.youshu_source.get_book_details(self.session, str(novel_id))
-            if book_details:
-                async for result in self._render_book_details(event, book_details):
-                    yield result
-            else:
-                yield event.plain_result(f"😢 无法获取书籍详情。")
-        except Exception as e:
-            logger.error(f"获取书籍详情失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 获取详情时发生错误: {str(e)}")
-
-    @filter.command_group("hs")
-    def hs_group(self):
-        """皇叔搜索命令组"""
-        pass
-
-    @hs_group.command("next")
-    async def hs_next_page(self, event: AstrMessageEvent):
-        """下一页"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "hs":
-            yield event.plain_result("🤔 没有可供翻页的搜索结果，请先使用 /hs <书名> 进行搜索。")
-            return
-
-        current_page = state.get("current_page", 1)
-        max_pages = state.get("max_pages", 1)
-
-        if current_page >= max_pages:
-            yield event.plain_result("➡️ 已经是最后一页了。")
-            return
-
-        next_page = current_page + 1
-        keyword = state["keyword"]
-
-        try:
-            search_result = await self.uaa_source.search(self.session, keyword, next_page)
-            if search_result is None or not search_result.books:
-                yield event.plain_result(f"😢 无法加载第 {next_page} 页。")
-                return
-
-            # Update state
-            self.state_mgr.update_state(user_id, keyword, next_page, search_result.total_pages, "hs", search_result.books)
-
-            message_text = self._render_search_results(keyword, search_result, next_page, "hs")
-            yield event.plain_result(message_text)
-        except Exception as e:
-            logger.error(f"翻页失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
-
-    @hs_group.command("prev")
-    async def hs_prev_page(self, event: AstrMessageEvent):
-        """上一页"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "hs":
-            yield event.plain_result("🤔 没有可供翻页的搜索结果，请先使用 /hs <书名> 进行搜索。")
-            return
-
-        current_page = state.get("current_page", 1)
-
-        if current_page <= 1:
-            yield event.plain_result("⬅️ 已经是第一页了。")
-            return
-
-        prev_page = current_page - 1
-        keyword = state["keyword"]
-        max_pages = state.get("max_pages", 1)
-
-        try:
-            search_result = await self.uaa_source.search(self.session, keyword, prev_page)
-            if search_result is None or not search_result.books:
-                yield event.plain_result(f"😢 无法加载第 {prev_page} 页。")
-                return
-
-            # Update state
-            self.state_mgr.update_state(user_id, keyword, prev_page, search_result.total_pages, "hs", search_result.books)
-
-            message_text = self._render_search_results(keyword, search_result, prev_page, "hs")
-            yield event.plain_result(message_text)
-        except Exception as e:
-            logger.error(f"翻页失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 翻页时发生错误: {str(e)}")
-
-    @hs_group.command("ls")
-    async def hs_list_or_detail(self, event: AstrMessageEvent, index: str = ""):
-        """查看指定序号的书籍详情"""
-        user_id = event.get_sender_id()
-        state = self.state_mgr.get_state(user_id)
-
-        if not state.get("keyword") or state.get("search_type") != "hs":
-            yield event.plain_result("🤔 没有可用的搜索结果，请先使用 /hs <书名> 进行搜索。")
-            return
-
-        if not index or not index.isdigit():
-            yield event.plain_result("❌ 请提供有效的序号，例如：/hs ls 1")
-            return
-
-        item_index = int(index)
-        results_per_page = 20
-        current_page = state.get("current_page", 1)
-
-        # 计算该序号应该在哪一页
-        correct_page = (item_index - 1) // results_per_page + 1
-
-        # 如果不在当前页，需要先加载对应页
-        if correct_page != current_page:
-            keyword = state["keyword"]
-            try:
-                yield event.plain_result(f"⏳ 序号【{item_index}】位于第 {correct_page} 页，正在为您跳转...")
-                search_result = await self.uaa_source.search(self.session, keyword, correct_page)
-                if search_result is None or not search_result.books:
-                    yield event.plain_result(f"😢 无法加载第 {correct_page} 页。")
-                    return
-                # Update state
-                self.state_mgr.update_state(user_id, keyword, correct_page, search_result.total_pages, "hs", search_result.books)
-            except Exception as e:
-                logger.error(f"加载页面失败: {e}", exc_info=True)
-                yield event.plain_result(f"❌ 加载页面时发生错误: {str(e)}")
-                return
-
-        # 从当前页结果中获取对应的书籍
-        index_on_page = (item_index - 1) % results_per_page
-        results = state.get("results", [])
-
-        if not (0 <= index_on_page < len(results)):
-            yield event.plain_result(f"❌ 序号【{item_index}】不存在。")
-            return
-
-        selected_book = results[index_on_page]
-        novel_id = selected_book.get('id')
-        if not novel_id:
-            yield event.plain_result(f"❌ 无法获取序号为【{item_index}】的书籍ID。")
-            return
-
-        try:
-            book_details = await self.uaa_source.get_book_details(self.session, str(novel_id))
-            if book_details:
-                async for result in self._render_book_details(event, book_details):
-                    yield result
-            else:
-                yield event.plain_result(f"😢 无法获取书籍详情。")
-        except Exception as e:
-            logger.error(f"获取书籍详情失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 获取详情时发生错误: {str(e)}")
-
     async def _get_latest_novel_id(self) -> Optional[int]:
         """获取最新小说ID"""
         # Use the appropriate source based on the current API being used
@@ -800,6 +705,10 @@ class YoushuSearchPlugin(Star):
 
     @filter.command("随机小说")
     async def youshu_random_command(self, event: AstrMessageEvent):
+        """
+        随机小说推荐
+        用法: /随机小说
+        """
         max_retries = 10
         try:
             latest_id = await self._get_latest_novel_id()

@@ -579,7 +579,7 @@ class YoushuSearchPlugin(Star):
                     if tags:
                         novel_info['tags'] = [clean_html_content(tag) for tag in tags]
                 reviews = []
-                review_blocks = re.findall(r'<div class="c_row cf">.*?<div class="c_tag">', html_content, re.DOTALL)
+                review_blocks = re.findall(r'<div class="c_row cf[^"]*">.*?<div class="c_tag">', html_content, re.DOTALL)
                 for block in review_blocks[:5]:
                     author_match = re.search(r'<p>(.*?)</p></a>\s*<p><div class="user-level">', block, re.DOTALL)
                     rating_match = re.search(r'<span title="(\d+)\s*颗星"', block, re.DOTALL)
@@ -917,7 +917,7 @@ class YoushuSearchPlugin(Star):
 
     @filter.command_group("hs")
     def hs_group(self):
-        """好书搜索命令组"""
+        """皇叔搜索命令组"""
         pass
     
     @hs_group.command("next")

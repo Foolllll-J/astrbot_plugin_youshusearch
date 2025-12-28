@@ -428,10 +428,10 @@ class YoushuSearchPlugin(Star):
 
         # 整合子命令逻辑
         sub_cmd = args[0].lower()
-        if sub_cmd == "next":
+        if sub_cmd == "next" or sub_cmd == "下一页":
             async for res in self._handle_next_page(event, "ys"): yield res
             return
-        elif sub_cmd == "prev":
+        elif sub_cmd == "prev" or sub_cmd == "上一页":
             async for res in self._handle_prev_page(event, "ys"): yield res
             return
 
@@ -547,10 +547,10 @@ class YoushuSearchPlugin(Star):
 
         # 整合子命令逻辑
         sub_cmd = args[0].lower()
-        if sub_cmd == "next":
+        if sub_cmd == "next" or sub_cmd == "下一页":
             async for res in self._handle_next_page(event, "hs"): yield res
             return
-        elif sub_cmd == "prev":
+        elif sub_cmd == "prev" or sub_cmd == "上一页":
             async for res in self._handle_prev_page(event, "hs"): yield res
             return
 

@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white)
 ![AstrBot](https://img.shields.io/badge/framework-AstrBot-ff6b6b?style=flat-square)
 
-本插件是为 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 开发的，旨在帮助用户快速搜索网络小说的书籍信息的插件。
+一款为 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 开发的，旨在帮助用户快速搜索网络小说的书籍信息与评价的插件。
 
 ## 🚀 特性
 

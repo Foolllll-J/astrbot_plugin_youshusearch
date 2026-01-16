@@ -1,10 +1,20 @@
+<div align="center">
+
 # 📚 优书搜索助手
+
+<i>📖 发现下一本好书</i>
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.10+-blue?style=flat-square&logo=python&logoColor=white)
 ![AstrBot](https://img.shields.io/badge/framework-AstrBot-ff6b6b?style=flat-square)
 
-一款为 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 开发的，旨在帮助用户快速搜索网络小说的书籍信息与评价的插件。
+</div>
+
+## ✨ 简介
+
+一款为 [**AstrBot**](https://github.com/AstrBotDevs/AstrBot) 开发的，旨在帮助用户快速搜索网络小说的书籍信息与读者评价的搜索工具。
+
+---
 
 ## 🚀 特性
 
@@ -65,7 +75,10 @@
 
 ---
 
-## 📅 版本更新
+## 📅 更新日志
+
+<details>
+<summary>点击展开更新日志</summary>
 
 **v1.5**
 
@@ -99,7 +112,20 @@
 
 * 实现 `/ys` 指令，用于搜索书籍信息。
 
-## 📞 联系方式
+</details>
 
-如果您在使用中遇到问题，欢迎在本仓库提交 [Issue](https://github.com/Foolllll-J/astrbot_plugin_youshusearch/issues)。
+---
+
+## ❤️ 支持
+
+* [AstrBot 帮助文档](https://astrbot.app)
+* 如果您在使用中遇到问题，欢迎在本仓库提交 [Issue](https://github.com/Foolllll-J/astrbot_plugin_youshusearch/issues)。
+
+---
+
+<div align="center">
+
+**如果本插件对你有帮助，欢迎点个 ⭐ Star 支持一下！**
+
+</div>
 

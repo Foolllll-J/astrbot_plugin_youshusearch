@@ -5,7 +5,6 @@ import re
 import base64
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
-from urllib.parse import urljoin, quote
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -237,7 +236,32 @@ class YoushuSearchPlugin(Star):
 
     async def _render_book_details(self, event: AstrMessageEvent, book: Book):
         """统一渲染书籍详情并返回事件结果"""
-        message_text = f"---【{book.title}】---\n"
+        has_detail_content = any(
+            [
+                book.title,
+                book.author,
+                book.score,
+                book.status,
+                book.platform,
+                book.category,
+                book.categories,
+                book.tags,
+                book.word_count is not None,
+                book.update_time,
+                book.last_chapter,
+                book.meat_ratio,
+                book.popularity,
+                book.synopsis,
+                book.link,
+            ]
+        )
+
+        if book.title:
+            message_text = f"---【{book.title}】---\n"
+        elif has_detail_content:
+            message_text = "---【书籍详情】---\n"
+        else:
+            message_text = ""
         
         # 核心信息：作者
         if book.author:
@@ -307,7 +331,9 @@ class YoushuSearchPlugin(Star):
 
         # 书评内容
         if book.reviews:
-            message_text += "\n--- 📝 最新书评 ---\n"
+            if message_text:
+                message_text += "\n"
+            message_text += "--- 📝 最新书评 ---\n"
             for review in book.reviews[:5]: # 最多显示5条
                 author = review.get('author', '匿名')
                 # 兼容不同的评分键名 (score or rating)，并统一格式化
@@ -325,6 +351,9 @@ class YoushuSearchPlugin(Star):
                     review_line += f", {time_str}"
                 review_line += f"): {content}\n"
                 message_text += review_line
+
+        if not message_text.strip():
+            message_text = "😢 无法获取书籍详情。"
 
         chain = []
         # 图片抓取 (HS 详情页未抓取封面)
@@ -717,4 +746,4 @@ class YoushuSearchPlugin(Star):
         """插件销毁时的清理工作"""
         if not self.session.closed:
             await self.session.close()
-        logger.info("小说搜索插件已卸载")
+        logger.info("优书搜索插件已卸载")

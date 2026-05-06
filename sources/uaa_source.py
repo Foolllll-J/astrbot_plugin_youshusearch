@@ -67,70 +67,84 @@ class UaaSource(BaseSource):
         novel_url = urljoin(self.uaa_base_url, f"/novel/intro?id={book_id}")
 
         try:
-            async with session.get(novel_url, headers=HS_HEADERS, timeout=10) as response:
-                response.raise_for_status()
-                html_content = await response.text()
-
             novel_info = {}
 
             def clean_text(text):
                 return text.strip() if text else '无'
 
-            # 提取标题
-            title_match = re.search(r'<h1>(.*?)</h1>', html_content)
-            novel_info['title'] = clean_text(title_match.group(1)) if title_match else '无'
+            novel_info['title'] = '无'
+            novel_info['author'] = '无'
+            novel_info['status'] = '无'
+            novel_info['score'] = '无'
+            novel_info['intro'] = '无'
+            novel_info['tags'] = []
+            novel_info['categories'] = []
+            novel_info['latest_chapter'] = None
+            novel_info['update_time'] = None
+            novel_info['meat_ratio'] = None
+            novel_info['word_count'] = None
+            novel_info['popularity'] = None
 
-            # 提取作者
-            author_match = re.search(r'作者：\s*<a.*?>(.*?)</a>', html_content)
-            novel_info['author'] = clean_text(author_match.group(1)) if author_match else '无'
+            try:
+                async with session.get(novel_url, headers=HS_HEADERS, timeout=10) as response:
+                    response.raise_for_status()
+                    html_content = await response.text()
 
-            # 提取状态
-            status_match = re.search(r'<span class="update_state">状态：(.*?)</span>', html_content)
-            novel_info['status'] = clean_text(status_match.group(1)) if status_match else '无'
+                # 提取标题
+                title_match = re.search(r'<h1>(.*?)</h1>', html_content)
+                novel_info['title'] = clean_text(title_match.group(1)) if title_match else '无'
 
-            # 提取评分
-            score_match = re.search(r'评分：<span>(.*?)</span>', html_content)
-            novel_info['score'] = clean_text(score_match.group(1)) if score_match else '无'
+                # 提取作者
+                author_match = re.search(r'作者：\s*<a.*?>(.*?)</a>', html_content)
+                novel_info['author'] = clean_text(author_match.group(1)) if author_match else '无'
 
-            # 提取简介
-            intro_match = re.search(r'<div class="txt ellipsis">小说简介：(.*?)(?:</div>|<div class="arrow")', html_content, re.DOTALL)
-            novel_info['intro'] = clean_text(intro_match.group(1)) if intro_match else '无'
+                # 提取状态
+                status_match = re.search(r'<span class="update_state">状态：(.*?)</span>', html_content)
+                novel_info['status'] = clean_text(status_match.group(1)) if status_match else '无'
 
-            # 提取标签
-            tags = re.findall(r'<li><a href="/novel/list\?tag=.*?"><b>#</b>(.*?)</a></li>', html_content)
-            novel_info['tags'] = tags if tags else []
+                # 提取评分
+                score_match = re.search(r'评分：<span>(.*?)</span>', html_content)
+                novel_info['score'] = clean_text(score_match.group(1)) if score_match else '无'
 
-            # 提取题材
-            category_block_match = re.search(r'<div class="item">\s*题材：\s*(.*?)</div>', html_content, re.DOTALL)
-            if category_block_match:
-                categories = re.findall(r'<a.*?>(.*?)</a>', category_block_match.group(1))
-                novel_info['categories'] = [cat.strip() for cat in categories]
-            else:
-                novel_info['categories'] = []
+                # 提取简介
+                intro_match = re.search(r'<div class="txt ellipsis">小说简介：(.*?)(?:</div>|<div class="arrow")', html_content, re.DOTALL)
+                novel_info['intro'] = clean_text(intro_match.group(1)) if intro_match else '无'
 
-            # 提取最新章节
-            update_match = re.search(r'<div class="item">\s*最新：(.*?)\s*</div>', html_content)
-            novel_info['latest_chapter'] = clean_text(update_match.group(1)) if update_match else None
+                # 提取标签
+                tags = re.findall(r'<li><a href="/novel/list\?tag=.*?"><b>#</b>(.*?)</a></li>', html_content)
+                novel_info['tags'] = tags if tags else []
 
-            # 提取最后更新时间
-            update_time_match = re.search(r'最后更新：\s*(.*?)\s*</div>', html_content)
-            novel_info['update_time'] = clean_text(update_time_match.group(1)) if update_time_match else None
+                # 提取题材
+                category_block_match = re.search(r'<div class="item">\s*题材：\s*(.*?)</div>', html_content, re.DOTALL)
+                if category_block_match:
+                    categories = re.findall(r'<a.*?>(.*?)</a>', category_block_match.group(1))
+                    novel_info['categories'] = [cat.strip() for cat in categories]
 
-            # 从 props_box 中提取字数、热度和多肉度
-            props_match = re.search(r'<div class="props_box"[^>]*?>\s*<ul>(.*?)</ul>', html_content, re.DOTALL)
-            if props_match:
-                props_html = props_match.group(1)
-                # 肉度
-                meat_match = re.search(r'<li>\s*<img src="/image/rou\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
-                novel_info['meat_ratio'] = clean_text(meat_match.group(1)) if meat_match else None
-                
-                # 字数
-                word_match = re.search(r'<li>\s*<img src="/image/word_count\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
-                novel_info['word_count'] = clean_text(word_match.group(1)) if word_match else None
-                
-                # 收藏数 (热度)
-                collect_match = re.search(r'<li>\s*<img src="/image/collect\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
-                novel_info['popularity'] = f"{clean_text(collect_match.group(1))}人收藏" if collect_match else None
+                # 提取最新章节
+                update_match = re.search(r'<div class="item">\s*最新：(.*?)\s*</div>', html_content)
+                novel_info['latest_chapter'] = clean_text(update_match.group(1)) if update_match else None
+
+                # 提取最后更新时间
+                update_time_match = re.search(r'最后更新：\s*(.*?)\s*</div>', html_content)
+                novel_info['update_time'] = clean_text(update_time_match.group(1)) if update_time_match else None
+
+                # 从 props_box 中提取字数、热度和多肉度
+                props_match = re.search(r'<div class="props_box"[^>]*?>\s*<ul>(.*?)</ul>', html_content, re.DOTALL)
+                if props_match:
+                    props_html = props_match.group(1)
+                    # 肉度
+                    meat_match = re.search(r'<li>\s*<img src="/image/rou\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                    novel_info['meat_ratio'] = clean_text(meat_match.group(1)) if meat_match else None
+                    
+                    # 字数
+                    word_match = re.search(r'<li>\s*<img src="/image/word_count\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                    novel_info['word_count'] = clean_text(word_match.group(1)) if word_match else None
+                    
+                    # 收藏数 (热度)
+                    collect_match = re.search(r'<li>\s*<img src="/image/collect\.svg"/>(.*?)\s*</li>', props_html, re.DOTALL)
+                    novel_info['popularity'] = f"{clean_text(collect_match.group(1))}人收藏" if collect_match else None
+            except Exception as e:
+                logger.warning(f"⚠️ 获取 HS 详情页失败 (ID: {book_id})，将继续尝试获取书评: {e}")
 
             # 获取书评
             reviews = []
@@ -180,6 +194,26 @@ class UaaSource(BaseSource):
                 last_chapter=novel_info['latest_chapter'],
                 reviews=reviews
             )
+
+            if not any(
+                [
+                    book.title,
+                    book.author,
+                    book.score,
+                    book.status,
+                    book.category,
+                    book.categories,
+                    book.tags,
+                    book.word_count is not None,
+                    book.update_time,
+                    book.last_chapter,
+                    book.meat_ratio,
+                    book.popularity,
+                    book.synopsis,
+                    book.reviews,
+                ]
+            ):
+                return None
 
             return book
 

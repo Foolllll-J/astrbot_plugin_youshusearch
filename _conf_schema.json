@@ -1,18 +1,19 @@
 {
   "base_url": {
-    "description": "选择访问地址",
+    "description": "优书访问地址",
     "type": "string",
     "default": "https://www.ypshuo.com/",
     "options": ["https://youshu.me/", "https://www.ypshuo.com/"]
   },
   "cookie": {
-    "description": "youshu.me网址的Cookie（如cf_clearance=）",
+    "description": "优书 Cookie",
+    "hint": "仅在 base_url 选择 https://youshu.me/ 时填写，例如浏览器中的 cf_clearance 等验证 Cookie。",
     "type": "string",
     "default": ""
   },
   "enable_official_metadata": {
     "description": "正版元数据补全",
-    "hint": "目前仅支持起点中文网的正版元数据补全",
+    "hint": "开启后会尝试使用正版网站补全作者、状态、分类、字数、简介等信息；目前仅支持起点。",
     "type": "bool",
     "default": false
   }

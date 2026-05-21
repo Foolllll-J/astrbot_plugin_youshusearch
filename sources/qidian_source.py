@@ -4,20 +4,22 @@ import re
 from lxml import html
 from urllib.parse import quote
 from astrbot.api import logger
+from collections.abc import Callable
 
 class QidianSource:
-    def __init__(self):
+    def __init__(self, session_factory: Callable[..., aiohttp.ClientSession] | None = None):
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
             "Referer": "https://m.qidian.com/",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
         }
+        self.session_factory = session_factory or aiohttp.ClientSession
 
     async def search_book(self, keyword, page=1, return_metadata=False):
         """仅搜索第一页结果"""
         all_records = []
         
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+        async with self.session_factory(headers=self.headers) as session:
             try:
                 search_url = f"https://m.qidian.com/so/{quote(keyword)}.html?pageNum=1"
                 logger.info(f"🔍 [优书搜索] 正在获取起点正版数据 (仅第1页): {search_url}")
@@ -57,7 +59,7 @@ class QidianSource:
 
     async def get_book_details(self, book_url):
         book_url = book_url.replace("www.qidian.com", "m.qidian.com")
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+        async with self.session_factory(headers=self.headers) as session:
             try:
                 async with session.get(book_url, timeout=10) as resp:
                     content = await resp.text()

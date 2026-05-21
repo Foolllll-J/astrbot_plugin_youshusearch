@@ -16,5 +16,11 @@
     "hint": "开启后会尝试使用正版网站补全作者、状态、分类、字数、简介等信息；目前仅支持起点。",
     "type": "bool",
     "default": false
+  },
+  "proxy_url": {
+    "description": "代理地址",
+    "hint": "留空则直连；填写后插件外部访问都会走该代理，例如 http://127.0.0.1:7890",
+    "type": "string",
+    "default": ""
   }
 }

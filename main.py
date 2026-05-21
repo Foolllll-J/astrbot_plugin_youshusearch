@@ -4,6 +4,7 @@ import random
 import re
 import base64
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Dict, List, Optional, Any
 
 from astrbot.api.event import filter, AstrMessageEvent
@@ -106,6 +107,7 @@ class SearchStateManager:
 from .sources.youshu_source import YoushuSource, YS_API1_HEADERS, YS_API2_HEADERS
 from .sources.uaa_source import UaaSource
 from .sources.qidian_source import QidianSource
+from .core.http_session import build_session_factory
 
 @register(
     "astrbot_plugin_youshusearch",  # 插件ID
@@ -119,11 +121,14 @@ class YoushuSearchPlugin(Star):
         super().__init__(context)
         if config is None:
             config = {}
+
+        self.config = config
+        self.session_factory: Callable[..., aiohttp.ClientSession] = build_session_factory(config)
         
         # 初始化数据源
         self.youshu_source = YoushuSource(config)
         self.uaa_source = UaaSource(config)
-        self.qidian_source = QidianSource()
+        self.qidian_source = QidianSource(self.session_factory)
         
         # 插件配置
         self.enable_official_metadata = config.get("enable_official_metadata", False)
@@ -132,7 +137,7 @@ class YoushuSearchPlugin(Star):
         self.state_mgr = SearchStateManager()
         
         # 初始化全局会话
-        self.session = aiohttp.ClientSession()
+        self.session = self.session_factory()
 
     def _get_item_by_number(self, user_id: str, number: int, search_type: str) -> Optional[Dict]:
         """根据序号和搜索类型获取书籍信息"""

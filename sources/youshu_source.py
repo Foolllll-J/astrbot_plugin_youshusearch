@@ -369,7 +369,7 @@ class YoushuSource(BaseSource):
     async def search(self, session: aiohttp.ClientSession, keyword: str, page: int = 1) -> Optional[SearchResult]:
         """搜索书籍"""
         search_result = await self.strategy.search(session, keyword, page)
-        if search_result is None or not search_result[0]:
+        if search_result is None:
             return None
 
         raw_books, total_pages = search_result

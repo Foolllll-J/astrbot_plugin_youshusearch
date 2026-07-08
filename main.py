@@ -6,8 +6,9 @@ import base64
 from dataclasses import dataclass
 from collections.abc import Callable
 from typing import Dict, List, Optional, Any
+from cachetools import TTLCache
 
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
 import astrbot.api.message_components as Comp
 from astrbot.api import logger
@@ -61,7 +62,7 @@ class SearchStateManager:
     """专门管理用户的搜索状态"""
 
     def __init__(self):
-        self.states: Dict[str, Dict] = {}
+        self.states: TTLCache = TTLCache(maxsize=1000, ttl=600)
 
     def get_state(self, user_id: str) -> Dict:
         """获取用户搜索状态"""
@@ -164,9 +165,9 @@ class YoushuSearchPlugin(Star):
             message_text += f"{num}. {book.title}\n    作者：{book.author} | 评分: {score_str}{scorer_info}\n"
         
         cmd_prefix = f"/{search_type}"
-        message_text += f"\n💡 请使用 `{cmd_prefix} <序号>` 查看详情"
+        message_text += f"\u200b\n💡 使用 `{cmd_prefix} 序号` 查看详情"
         if results.total_pages > 1:
-            message_text += f"\n💡 使用 {cmd_prefix} next 下一页，{cmd_prefix} prev 上一页"
+            message_text += f"\n💡 使用 `{cmd_prefix} n/p` 翻页"
         return message_text
 
     async def _get_enriched_book_details(self, source, session, novel_id: str, title: Optional[str] = None) -> Optional[Book]:
@@ -239,7 +240,7 @@ class YoushuSearchPlugin(Star):
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         return "　　" + "\n　　".join(lines)
 
-    async def _render_book_details(self, event: AstrMessageEvent, book: Book):
+    async def _render_book_details(self, event: AstrMessageEvent, book: Book, skip_forward: bool = False):
         """统一渲染书籍详情并返回事件结果"""
         has_detail_content = any(
             [
@@ -336,9 +337,7 @@ class YoushuSearchPlugin(Star):
 
         # 书评内容
         if book.reviews:
-            if message_text:
-                message_text += "\n"
-            message_text += "--- 📝 最新书评 ---\n"
+            message_text += "\u200b\n--- 📝 最新书评 ---\n"
             for review in book.reviews[:5]: # 最多显示5条
                 author = review.get('author', '匿名')
                 # 兼容不同的评分键名 (score or rating)，并统一格式化
@@ -373,10 +372,14 @@ class YoushuSearchPlugin(Star):
                 chain.append(image_component)
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"❌ 下载封面图片失败 (超时或链接无效): {e}")
-                message_text = "🖼️ 封面加载失败\n\n" + message_text
+                message_text = "🖼️ 封面加载失败\n\u200b\n" + message_text
 
         chain.append(Comp.Plain(message_text.strip()))
-        yield event.chain_result(chain)
+        if skip_forward:
+            await event.send(MessageChain(chain=chain))
+            yield event.stop_event()
+        else:
+            yield event.chain_result(chain)
 
     async def _handle_next_page(self, event: AstrMessageEvent, search_type: str):
         """处理下一页逻辑"""
@@ -385,7 +388,7 @@ class YoushuSearchPlugin(Star):
         source = self.youshu_source if search_type == "ys" else self.uaa_source
 
         if not state.get("keyword") or state.get("search_type") != search_type:
-            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
+            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} 书名 进行搜索。")
             return
 
         current_page = state.get("current_page", 1)
@@ -418,7 +421,7 @@ class YoushuSearchPlugin(Star):
         source = self.youshu_source if search_type == "ys" else self.uaa_source
 
         if not state.get("keyword") or state.get("search_type") != search_type:
-            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} <书名> 进行搜索。")
+            yield event.plain_result(f"🤔 没有可供翻页的搜索结果，请先使用 /{search_type} 书名 进行搜索。")
             return
 
         current_page = state.get("current_page", 1)
@@ -454,7 +457,7 @@ class YoushuSearchPlugin(Star):
         message_str = event.message_str.strip()
         parts = message_str.split()
         if len(parts) < 2:
-            yield event.plain_result("❌ 用法: /ys <书名> [序号 | -页码]\n💡 示例: /ys 剑来 1 (查看第一项)、/ys 剑来 -2 (查看第二页)")
+            yield event.plain_result("❌ 用法: /ys 书名 [序号 | -页码]\n💡 示例: /ys 剑来、/ys 剑来 1（查看第1项详情）")
             return
         
         # 获取指令名之后的实际参数列表
@@ -462,10 +465,10 @@ class YoushuSearchPlugin(Star):
 
         # 整合子命令逻辑
         sub_cmd = args[0].lower()
-        if sub_cmd == "next" or sub_cmd == "下一页":
+        if sub_cmd in ("next", "n", "下一页"):
             async for res in self._handle_next_page(event, "ys"): yield res
             return
-        elif sub_cmd == "prev" or sub_cmd == "上一页":
+        elif sub_cmd in ("prev", "p", "上一页"):
             async for res in self._handle_prev_page(event, "ys"): yield res
             return
 
@@ -481,7 +484,7 @@ class YoushuSearchPlugin(Star):
                 item_index = int(args[0])
                 page_to_list = state.get("current_page", 1)
             else:
-                yield event.plain_result("🤔 请先使用 /ys <书名> 进行搜索。")
+                yield event.plain_result("🤔 请先使用 /ys 书名 进行搜索。")
                 return
         else:
             # 原有的参数解析逻辑
@@ -506,12 +509,16 @@ class YoushuSearchPlugin(Star):
         try:
             # 搜索书籍
             search_result = await self.youshu_source.search(self.session, book_name, page_to_list)
-            if search_result is None or not search_result.books:
+            if search_result is None:
                 yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
                 return
 
-            if page_to_list > search_result.total_pages and search_result.total_pages > 0:
-                yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果最多只有 {search_result.total_pages} 页。")
+            if page_to_list > search_result.total_pages > 0:
+                yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果共 {search_result.total_pages} 页。")
+                return
+
+            if not search_result.books:
+                yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
                 return
 
             # 更新用户搜索状态
@@ -560,7 +567,7 @@ class YoushuSearchPlugin(Star):
                     yield event.plain_result(f"😢 无法获取书籍详情。")
         except Exception as e:
             logger.error(f"搜索书籍 '{book_name}' 失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 搜索书籍时发生未知错误: {str(e)}")
+            yield event.plain_result(f"❌ 搜索书籍时出错: {str(e)}")
 
     @filter.command("hs", alias={"皇叔", "黄书"})
     async def hs_search_command(self, event: AstrMessageEvent):
@@ -573,7 +580,7 @@ class YoushuSearchPlugin(Star):
         message_str = event.message_str.strip()
         parts = message_str.split()
         if len(parts) < 2:
-            yield event.plain_result("❌ 用法: /hs <书名> [序号 | -页码]\n💡 示例: /hs 剑来 1 (查看第一项)、/hs 剑来 -2 (查看第二页)")
+            yield event.plain_result("❌ 用法: /hs 书名 [序号 | -页码]\n💡 示例: /hs 花嫁、/hs 花嫁 1（查看第1项详情）")
             return
         
         # 获取指令名之后的实际参数列表
@@ -581,10 +588,10 @@ class YoushuSearchPlugin(Star):
 
         # 整合子命令逻辑
         sub_cmd = args[0].lower()
-        if sub_cmd == "next" or sub_cmd == "下一页":
+        if sub_cmd in ("next", "n", "下一页"):
             async for res in self._handle_next_page(event, "hs"): yield res
             return
-        elif sub_cmd == "prev" or sub_cmd == "上一页":
+        elif sub_cmd in ("prev", "p", "上一页"):
             async for res in self._handle_prev_page(event, "hs"): yield res
             return
 
@@ -600,7 +607,7 @@ class YoushuSearchPlugin(Star):
                 item_index = int(args[0])
                 page_to_list = state.get("current_page", 1)
             else:
-                yield event.plain_result("🤔 请先使用 /hs <书名> 进行搜索。")
+                yield event.plain_result("🤔 请先使用 /hs 书名 进行搜索。")
                 return
         else:
             # 原有的参数解析逻辑
@@ -625,12 +632,16 @@ class YoushuSearchPlugin(Star):
         try:
             # 搜索书籍
             search_result = await self.uaa_source.search(self.session, book_name, page_to_list)
-            if search_result is None or not search_result.books:
+            if search_result is None:
                 yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
                 return
 
-            if page_to_list > search_result.total_pages and search_result.total_pages > 0:
-                yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果最多只有 {search_result.total_pages} 页。")
+            if page_to_list > search_result.total_pages > 0:
+                yield event.plain_result(f"❌ 您请求的第 {page_to_list} 页不存在，【{book_name}】的搜索结果共 {search_result.total_pages} 页。")
+                return
+
+            if not search_result.books:
+                yield event.plain_result(f"😢 未找到关于【{book_name}】的任何书籍信息。")
                 return
 
             # 更新用户搜索状态
@@ -641,11 +652,12 @@ class YoushuSearchPlugin(Star):
                 selected_book = search_result.books[0]
                 book_details = await self._get_enriched_book_details(self.uaa_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
-                    async for result in self._render_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details, skip_forward=True):
                         yield result
                 else:
                     yield event.plain_result(f"😢 无法获取书籍详情。")
                 return
+
 
             if item_index is None: # 显示列表
                 message_text = self._render_search_results(book_name, search_result, page_to_list, "hs")
@@ -671,13 +683,13 @@ class YoushuSearchPlugin(Star):
                 selected_book = search_result.books[index_on_page]
                 book_details = await self._get_enriched_book_details(self.uaa_source, self.session, selected_book.id, selected_book.title)
                 if book_details:
-                    async for result in self._render_book_details(event, book_details):
+                    async for result in self._render_book_details(event, book_details, skip_forward=True):
                         yield result
                 else:
                     yield event.plain_result(f"😢 无法获取书籍详情。")
         except Exception as e:
             logger.error(f"搜索hs书籍 '{book_name}' 失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 搜索hs书籍时发生未知错误: {str(e)}")
+            yield event.plain_result(f"❌ 搜索时出错: {str(e)}")
 
     async def _get_latest_novel_id(self) -> Optional[int]:
         """获取最新小说ID"""
@@ -749,6 +761,7 @@ class YoushuSearchPlugin(Star):
 
     async def terminate(self):
         """插件销毁时的清理工作"""
+        self.state_mgr.states.clear()
         if not self.session.closed:
             await self.session.close()
         logger.info("优书搜索插件已卸载")

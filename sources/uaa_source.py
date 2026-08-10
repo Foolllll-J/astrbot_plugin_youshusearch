@@ -13,13 +13,14 @@ HS_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
+
 class UaaSource(BaseSource):
     """UAA 网站数据源 (hs)
-    
+
     搜索结果 JSON 已包含绝大部分详情字段，不再需要请求详情页 HTML。
     get_book_details() 仅从搜索缓存中获取数据 + 可选书评。
     """
-    
+
     def __init__(self, config: dict):
         super().__init__(config)
         self.uaa_base_url = "https://www.uaa001.com"
@@ -27,43 +28,43 @@ class UaaSource(BaseSource):
 
     def _parse_book_from_search(self, raw: dict) -> Book:
         """从搜索 API 返回的一条数据中解析完整的 Book 对象"""
-        book_id = str(raw.get('id', ''))
+        book_id = str(raw.get("id", ""))
         book = Book(
-            id=book_id,
-            title=raw.get('title') or '',
-            author=raw.get('authors') or ''
+            id=book_id, title=raw.get("title") or "", author=raw.get("authors") or ""
         )
         book.score = None
-        score = raw.get('score')
+        score = raw.get("score")
         if score is not None:
             try:
                 book.score = f"{float(score):.2f}"
             except (ValueError, TypeError):
                 book.score = str(score)
 
-        finished = raw.get('finished', 0)
-        book.status = '已完结' if finished == 1 else '连载中'
+        finished = raw.get("finished", 0)
+        book.status = "已完结" if finished == 1 else "连载中"
 
-        categories_str = raw.get('categories', '')
+        categories_str = raw.get("categories", "")
         if categories_str:
-            book.categories = [c.strip() for c in categories_str.split(',') if c.strip()]
+            book.categories = [
+                c.strip() for c in categories_str.split(",") if c.strip()
+            ]
             if book.categories:
                 book.category = book.categories[0]
 
-        tags_str = raw.get('tags', '')
+        tags_str = raw.get("tags", "")
         if tags_str:
-            book.tags = [t.strip() for t in tags_str.split(',') if t.strip()]
+            book.tags = [t.strip() for t in tags_str.split(",") if t.strip()]
 
-        wc = raw.get('wordCount')
+        wc = raw.get("wordCount")
         if wc is not None:
             book.word_count = wc
 
-        book.update_time = raw.get('updateTimeFormat')
-        book.last_chapter = raw.get('latestUpdate')
-        book.meat_ratio = raw.get('pornRateDesc')
+        book.update_time = raw.get("updateTimeFormat")
+        book.last_chapter = raw.get("latestUpdate")
+        book.meat_ratio = raw.get("pornRateDesc")
 
-        view_count = raw.get('viewCountFormat')
-        collect_count = raw.get('collectCountFormat')
+        view_count = raw.get("viewCountFormat")
+        collect_count = raw.get("collectCountFormat")
         pop_parts = []
         if view_count:
             pop_parts.append(f"热度:{view_count}")
@@ -72,7 +73,7 @@ class UaaSource(BaseSource):
         if pop_parts:
             book.popularity = " | ".join(pop_parts)
 
-        brief = raw.get('brief')
+        brief = raw.get("brief")
         if brief:
             book.synopsis = brief
 
@@ -81,7 +82,9 @@ class UaaSource(BaseSource):
 
         return book
 
-    async def search(self, session: aiohttp.ClientSession, keyword: str, page: int = 1) -> Optional[SearchResult]:
+    async def search(
+        self, session: aiohttp.ClientSession, keyword: str, page: int = 1
+    ) -> Optional[SearchResult]:
         """搜索书籍 — 解析全部可用字段并缓存"""
         search_api_url = urljoin(self.uaa_base_url, "/api/novel/app/novel/search")
         params = {
@@ -89,11 +92,13 @@ class UaaSource(BaseSource):
             "page": page,
             "searchType": 1,
             "size": 20,
-            "orderType": 0
+            "orderType": 0,
         }
 
         try:
-            async with session.get(search_api_url, params=params, headers=HS_HEADERS, timeout=20) as response:
+            async with session.get(
+                search_api_url, params=params, headers=HS_HEADERS, timeout=20
+            ) as response:
                 response.raise_for_status()
                 json_data = await response.json()
 
@@ -101,7 +106,9 @@ class UaaSource(BaseSource):
                 model = json_data["model"]
                 raw_results = model.get("data", [])
                 total_pages = model.get("totalPage", 1)
-                logger.info(f"✅ HS API 搜索 '{keyword}' (第 {page} 页) 成功，找到 {len(raw_results)} 条结果，共 {total_pages} 页。")
+                logger.info(
+                    f"✅ HS API 搜索 '{keyword}' (第 {page} 页) 成功，找到 {len(raw_results)} 条结果，共 {total_pages} 页。"
+                )
 
                 books = []
                 for raw_book in raw_results:
@@ -109,45 +116,57 @@ class UaaSource(BaseSource):
                     self._book_cache[book.id] = book
                     books.append(book)
 
-                return SearchResult(books=books, total_pages=total_pages, current_page=page)
+                return SearchResult(
+                    books=books, total_pages=total_pages, current_page=page
+                )
             else:
-                logger.warning(f"⚠️ HS API 搜索 '{keyword}' 返回失败或格式错误: {json_data.get('msg', '无信息')}")
+                logger.warning(
+                    f"⚠️ HS API 搜索 '{keyword}' 返回失败或格式错误: {json_data.get('msg', '无信息')}"
+                )
                 return None
         except Exception as e:
             logger.error(f"❌ 执行 HS API 搜索时发生错误: {e}", exc_info=True)
             return None
 
-    async def _fetch_reviews(self, session: aiohttp.ClientSession, book_id: str) -> List[Dict[str, Any]]:
+    async def _fetch_reviews(
+        self, session: aiohttp.ClientSession, book_id: str
+    ) -> List[Dict[str, Any]]:
         """调用评论 API 获取书评"""
         reviews = []
         try:
             comments_url = urljoin(self.uaa_base_url, "/api/novel/app/novel/comments")
             params = {"novelId": book_id, "sortType": 1, "page": 1, "rows": 5}
-            async with session.get(comments_url, params=params, headers=HS_HEADERS, timeout=10) as response:
+            async with session.get(
+                comments_url, params=params, headers=HS_HEADERS, timeout=10
+            ) as response:
                 response.raise_for_status()
                 comments_data = await response.json()
 
                 if comments_data.get("result") == "success" and "data" in comments_data:
                     for item in comments_data["data"]:
-                        score_data = item.get('score')
-                        score_val = '无'
+                        score_data = item.get("score")
+                        score_val = "无"
                         if isinstance(score_data, dict):
-                            score_val = score_data.get('source', '无')
+                            score_val = score_data.get("source", "无")
                         elif isinstance(score_data, (int, float)):
                             score_val = f"{score_data:.1f}"
 
-                        reviews.append({
-                            'author': item.get('nickName', '匿名'),
-                            'content': item.get('content', ''),
-                            'score': score_val,
-                            'time': item.get('createTimeFormat', '')
-                        })
+                        reviews.append(
+                            {
+                                "author": item.get("nickName", "匿名"),
+                                "content": item.get("content", ""),
+                                "score": score_val,
+                                "time": item.get("createTimeFormat", ""),
+                            }
+                        )
                     logger.info(f"✅ 成功获取到 {len(reviews)} 条书评 (ID: {book_id})")
         except Exception as e:
             logger.warning(f"⚠️ 获取书评失败 (ID: {book_id}): {e}")
         return reviews
 
-    async def get_book_details(self, session: aiohttp.ClientSession, book_id: str) -> Optional[Book]:
+    async def get_book_details(
+        self, session: aiohttp.ClientSession, book_id: str
+    ) -> Optional[Book]:
         """获取书籍详情 — 仅从搜索缓存获取 + 评论 API（不做 HTML 详情页解析）"""
         book = self._book_cache.get(book_id)
         if not book:

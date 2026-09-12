@@ -1,7 +1,7 @@
 name: astrbot_plugin_youshusearch
 display_name: 优书搜索助手
 desc: 查询网络小说详情以及优书网评价的搜索工具。
-version: v1.5.3
+version: v1.5.4
 author: Foolllll
 author_url: https://github.com/Foolllll-J
 repo: https://github.com/Foolllll-J/astrbot_plugin_youshusearch

@@ -639,7 +639,7 @@ class YoushuSearchPlugin(Star):
             )
             if search_result is None:
                 yield event.plain_result(
-                    f"😢 未找到关于【{book_name}】的任何书籍信息。"
+                    f"❌ 搜索服务异常，暂时无法获取关于【{book_name}】的搜索结果，请稍后重试。"
                 )
                 return
 
@@ -816,7 +816,7 @@ class YoushuSearchPlugin(Star):
             )
             if search_result is None:
                 yield event.plain_result(
-                    f"😢 未找到关于【{book_name}】的任何书籍信息。"
+                    f"❌ 搜索服务异常，暂时无法获取关于【{book_name}】的搜索结果，请稍后重试。"
                 )
                 return
 
